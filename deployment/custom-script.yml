@@ -1,0 +1,65 @@
+.update-kubeconfig-folder:
+  before_script:
+    - echo "Preparing k8s-config folder"
+    - mkdir -p k8s-config
+    - echo "Copying deployment folders to k8s-config"
+    - cp -r deployment/kob/* k8s-config/
+
+.update-deployment-kob:
+  before_script:
+    - |
+      BRANCH="$CI_COMMIT_REF_NAME"
+      echo "### Pulling latest version from $BRANCH"
+      git checkout -B $BRANCH
+      git pull origin $BRANCH
+      echo "### inserting $APP_NAME into deployment yml files"
+      BUILD_VERSION=$(echo "$YML_CONTENT_REPLACE_JSON" | jq -r '.deployment._BUILD_VERSION')
+      echo "### Build and Route version $BUILD_VERSION and _route_version"
+      # FILES=($DEPLOYMENT_FILE_GREEN $DEPLOYMENT_FILE_BLUE $SERVICE_FILE $DEPLOYMENT_FILE $SECRET_FILE)
+      FILES=($DEPLOYMENT_FILE_GREEN $DEPLOYMENT_FILE_BLUE $SERVICE_FILE $DEPLOYMENT_FILE)
+      for FILE in "${FILES[@]}"; do
+        sed -i "s/{APP_NAME}/$APP_NAME/g" $FILE
+        sed -i "s/{APP_VERSION}/$APP_VERSION/g" $FILE
+        sed -i "s#{APP_ENV}#$ENVIRONMENT#g" $FILE
+        eval $(hashivaultctl read $VAULT_HARBOR_SECRET_PATH)
+        sed -i "s#{ENV_DATACENTER}#$DATACENTER#g" $DEPLOYMENT_FILE_GREEN $FILE
+        sed -i "s#{KUBE_KOB_NAMESPACE}#$KOB_NAMESPACE#g" $FILE
+        sed -i "s#{INGRESS_CLASS_NAME}#$INGRESS_CLASS_NAME#g" $FILE
+        sed -i "s#{SERVICE_NAME}#$SERVICE_NAME#g" $FILE
+        sed -i "s#{BUILD_VERSION}#$BUILD_VERSION#g" $FILE
+        sed -i "s#{route_version}#_route_version#g" $FILE
+      done
+      echo "### inserting $APP_NAME into deployment yml files completed"
+
+
+.kube-login-kob:
+  before_script:
+    - rm -rf /root/.kube
+    - curl -s $BP_VERSION_SH > bp_version.sh;source bp_version.sh
+    - echo -e "\x1b[36;1mRunning \x1b[35;1m[$CI_JOB_STAGE]\x1b[36;1m stage with $CI_JOB_IMAGE ...\e[0m"
+    - echo "Required variables -> VAULT_CONFIG_PATH ==> $VAULT_CONFIG_PATH -> APP_NAME ==> $APP_NAME"
+    - curl $VAULT_CLI_PK_SH > vaultcli.sh;source vaultcli.sh ; KOB_CONFIG=$(vault kv get -format json -field=data $VAULT_CONFIG_PATH)
+    - is_config=$(echo $KOB_CONFIG | jq .clusters[0].name ) ; echo "Cluster name --> ${is_config}"
+    - if [ ${is_config,,} != "null" ]; then echo "Using Kubeconfig Authentication";  echo $KOB_CONFIG > $KUBECONFIG ; vault token revoke --self >/dev/null; if [[ $KOB_NAMESPACE ]]; then NAMESPACE=$KOB_NAMESPACE; else export NAMESPACE=$(kubectl config view --minify -ojson | jq -r .contexts[0].context.namespace); fi ; else vault token revoke --self >/dev/null ; echo "Using LDAP Authentication" ; curl $VAULT_CLI_SH > vaultcli.sh;source vaultcli.sh $VAULT_CONFIG_PATH ; if [[ -n $CLUSTER && $CLUSTER == *"kob"* ]]; then echo "KOB authentication" ; echo $PASSWORD | kob get-kubeconfig $CLUSTER -u $USERNAME -a $AUTH_ENDPOINT -n $NAMESPACE -i /usr/bin/ ; else echo "TKGI Authentication" ; echo $KOB_PASSWORD | tkgi get-kubeconfig -a $CLUSTER_API -u $KOB_USERNAME $CLUSTER_NAME ; if [[ $KOB_NAMESPACE ]]; then NAMESPACE=$KOB_NAMESPACE; fi ; fi; fi ; sleep 10
+    - if [ -z "$SERVICE_NAME" ] ; then if [[ $APP_NAME ]]; then SERVICE_NAME="${APP_NAME}-${SERVICE_KIND,,}" ; fi ;  fi; echo "SERVICE NAME => " $SERVICE_NAME;
+    - if [ -z "$DEPLOYMENT_NAME" ] ; then if [[ $APP_NAME ]]; then DEPLOYMENT_NAME="${APP_NAME}-${DEPLOYMENT_KIND,,}"; fi ;  fi; echo "DEPLOYMENT NAME => " $DEPLOYMENT_NAME;
+    - if [[ $APP_VERSION ]]; then HARBOR_IMAGE_VERSION="${APP_VERSION}-${APP_TAG}"; else export HARBOR_IMAGE_VERSION="${APP_TAG}"; fi
+    - export DEPLOYMENT_VERSION=$(kubectl get service $SERVICE_NAME -n $NAMESPACE -ojson | jq .metadata.annotations | grep -o -P '(?<=version\\":\\").*?(?=\\)');
+    - curl $VAULT_CLI_PK_SH > vaultcli.sh;source vaultcli.sh
+    - vault token revoke --self >/dev/null
+    - echo "DEPLOYMENT VERSION => $DEPLOYMENT_VERSION"
+    - if [[ $DEPLOYMENT_VERSION == "green" ]]; then export NEW_DEPLOYMENT_VERSION=blue; else export NEW_DEPLOYMENT_VERSION=green; fi
+    - PLX_CONFIG_FILE_DATA=$(echo "$PLX_CONFIG_FILE_DATA" | sed "s/{DEPLOYMENT_VERSION}/$NEW_DEPLOYMENT_VERSION-$ENVIRONMENT_TAG/g")
+
+.update-service-kob:
+  before_script:
+    - |
+      echo "### inserting $APP_NAME into service yml files"
+      FILES=$SERVICE_FILE
+      for FILE in "${FILES[@]}"; do
+        sed -i "s/{APP_NAME}/$APP_NAME/g" $FILE
+        sed -i "s/{APP_VERSION}/$APP_VERSION/g" $FILE
+        sed -i "s#{KUBE_KOB_NAMESPACE}#$KOB_NAMESPACE#g" $DEPLOYMENT_FILE_GREEN $FILE
+        sed -i "s#{route_version}#_route_version#g" $FILE
+      done
+      echo "### inserting $APP_NAME into deployment yml files completed"

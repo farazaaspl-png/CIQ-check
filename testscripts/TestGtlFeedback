@@ -1,0 +1,182 @@
+import unittest
+from unittest.mock import patch, MagicMock
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from kafka_framework.producer import KafkaMessageProducer
+from services.gtl_feedback.handlers import GTLFeedbackHandler  # Adjust import path as needed
+from core.exceptions import CustomBaseException
+ 
+class TestGTLFeedbackHandler(unittest.TestCase):
+ 
+    def setUp(self):
+        producer = KafkaMessageProducer(
+            bootstrap_servers='test_bootstrap',
+            security_protocol='test_security_protocol',
+            sasl_mechanism='test_sasl',
+            sasl_plain_username='test_user',
+            sasl_plain_password='test_pass'
+        )
+        self.handler = GTLFeedbackHandler(producer, 'test_output_topic')
+ 
+    @patch('services.gtl.workflow.DatabaseManager')
+    @patch('services.gtl.workflow.VectorInterface')
+
+    def test_approve_document(self, mock_vector_interface, mock_db_manager):
+        mock_vector = MagicMock()
+        mock_vector_interface.return_value = mock_vector
+        mock_db = MagicMock()
+        mock_db_manager.return_value = mock_db
+
+        header = {'eventType': 'IP_RECOMMENDATION_UPDATE', 'eventSubType': 'APPROVE_DOCUMENT'}
+        payload = {'daFileId': 'DA001', 'status': 'APPROVED'}
+        self.handler.handle(header, payload)
+ 
+        mock_db.update_document.assert_called_with(
+            where_clause={'dafileid': 'DA001'},
+            update_values={'status': 'APPROVED'}
+        )
+        mock_vector.vectorize_documents_by_dafileids.assert_called_once_with(['DA001'])
+ 
+    @patch('services.gtl.workflow.DatabaseManager')
+    @patch('services.gtl.workflow.VectorInterface')
+
+    def test_archive_document_and_delete_vector(self, mock_vector_interface, mock_db_manager):
+        mock_vector = MagicMock()
+        mock_vector_interface.return_value = mock_vector
+        mock_db = MagicMock()
+        mock_db_manager.return_value = mock_db
+
+        header = {'eventType': 'IP_RECOMMENDATION_DELETE', 'eventSubType': 'ARCHIVE_DOCUMENT'}
+        payload = {'daFileId': 'DA002', 'status': 'ARCHIVED'}
+        self.handler.handle(header, payload)
+ 
+        mock_db.update_document.assert_called_with(
+            where_clause={'dafileid': 'DA002'},
+            update_values={'status': 'ARCHIVED'}
+        )
+        mock_vector.delete_documents_by_dafileids.assert_called_once_with(['DA002'])
+ 
+    @patch('services.gtl.workflow.DatabaseManager')
+    @patch('services.gtl.workflow.VectorInterface')
+
+    def test_approve_and_replace_delivery_kit(self, mock_vector_interface, mock_db_manager):
+        mock_vector_interface.return_value = MagicMock()
+        mock_db = MagicMock()
+        mock_db_manager.return_value = mock_db
+
+        header = {'eventType': 'IP_RECOMMENDATION_UPDATE', 'eventSubType': 'APPROVE_AND_REPLACE_DELIVERY_KIT'}
+        payload = {'ipId': 'IP1', 'daFileId': 'DA003', 'status': 'APPROVED', 'uuid': 'UUID1'}
+        self.handler.handle(header, payload)
+ 
+        mock_db.update_document.assert_any_call(
+            where_clause={'ipid': 'IP1'},
+            update_values={'document_type': 'Field Template', 'status': 'REPLACED'}
+        )
+
+        mock_db.update_document.assert_any_call(
+            where_clause={'dafileid': 'DA003'},
+            update_values={'ipid': 'IP1', 'status': 'APPROVED'}
+        )
+ 
+    @patch('services.gtl.workflow.DatabaseManager')
+    @patch('services.gtl.workflow.VectorInterface')
+
+    def test_approve_and_create_delivery_kit(self, mock_vector_interface, mock_db_manager):
+        mock_vector = MagicMock()
+        mock_vector_interface.return_value = mock_vector
+        mock_db = MagicMock()
+        mock_db_manager.return_value = mock_db
+ 
+        header = {'eventType': 'IP_RECOMMENDATION_UPDATE', 'eventSubType': 'APPROVE_AND_CREATE_DELIVERY_KIT'}
+        payload = {'ipId': 'IP2', 'daFileId': 'DA004', 'status': 'APPROVED'}
+        self.handler.handle(header, payload)
+ 
+        mock_db.update_document.assert_called_with(
+            where_clause={'dafileid': 'DA004'},
+            update_values={'ipid': 'IP2', 'status': 'APPROVED', 'document_type': 'Delivery Template'}
+        )
+        mock_vector.vectorize_documents_by_dafileids.assert_called_once_with(['DA004'])
+ 
+    @patch('services.gtl.workflow.DatabaseManager')
+    @patch('services.gtl.workflow.VectorInterface')
+
+    def test_file_info_update(self, mock_vector_interface, mock_db_manager):
+        mock_vector = MagicMock()
+        mock_vector_interface.return_value = mock_vector
+        mock_db_manager.return_value = MagicMock()
+ 
+        header = {'eventType': 'IP_RECOMMENDATION_UPDATE', 'eventSubType': 'FILE_INFO_UPDATE'}
+        payload = {'daFileId': 'DA005'}
+        self.handler.handle(header, payload)
+        mock_vector.update_vectors.assert_called_once_with(['DA005'])
+ 
+    @patch('services.gtl.workflow.DatabaseManager')
+
+    def test_feedback_event(self, mock_db_manager):
+        mock_db = MagicMock()
+        mock_db_manager.return_value = mock_db
+
+        header = {'eventType': 'IP_RECOMMENDATION_FEEDBACK'}
+        payload = {'uuid': 'UUID2', 'filename': 'file.txt', 'daFileId': 'DA006', 'status': 'FEEDBACK_RECEIVED', 'feedback': 'Great'}
+        self.handler.handle(header, payload)
+
+        mock_db.update_document.assert_called_with(
+            where_clause={'dafileid': 'DA006'},
+            update_values={'status': 'FEEDBACK_RECEIVED'}
+        )
+
+        mock_db.insert_feedback.assert_called_with(
+            msguuid='UUID2',
+            filename='file.txt',
+            dafileid='DA006',
+            status='FEEDBACK_RECEIVED',
+            feedback='Great'
+        )
+ 
+    @patch('services.gtl.workflow.DatabaseManager')
+    @patch('services.gtl.workflow.VectorInterface')
+
+    def test_invalid_event_type(self, mock_vector_interface, mock_db_manager):
+        mock_vector_interface.return_value = MagicMock()
+        mock_db_manager.return_value = MagicMock()
+
+        header = {'eventType': 'INVALID_EVENT_TYPE'}
+        payload = {}
+        result = self.handler.handle(header, payload)
+        self.assertIsNone(result)  # Given that handler returns None on invalid eventType
+ 
+    @patch('services.gtl.workflow.DatabaseManager')
+    @patch('services.gtl.workflow.VectorInterface')
+
+    def test_error_in_db_update(self, mock_vector_interface, mock_db_manager):
+        mock_vector = MagicMock()
+        mock_vector_interface.return_value = mock_vector
+        mock_db = MagicMock()
+        mock_db.update_document.side_effect = Exception("DB error")
+        mock_db_manager.return_value = mock_db
+ 
+        header = {'eventType': 'IP_RECOMMENDATION_UPDATE', 'eventSubType': 'APPROVE_DOCUMENT'}
+        payload = {'daFileId': 'DA007', 'status': 'APPROVED'}
+ 
+        self.handler.handle(header, payload)
+ 
+    @patch('services.gtl.workflow.DatabaseManager')
+    @patch('services.gtl.workflow.VectorInterface')
+
+    def test_error_in_vectorization(self, mock_vector_interface, mock_db_manager):
+        mock_vector = MagicMock()
+        mock_vector.vectorize_documents_by_dafileids.side_effect = Exception("Vectorization error")
+        mock_vector_interface.return_value = mock_vector
+        mock_db = MagicMock()
+        mock_db_manager.return_value = mock_db
+ 
+        header = {'eventType': 'IP_RECOMMENDATION_UPDATE', 'eventSubType': 'APPROVE_AND_CREATE_DELIVERY_KIT'}
+        payload = {'ipId': 'IP3', 'daFileId': 'DA008', 'status': 'APPROVED'}
+ 
+        self.handler.handle(header, payload)
+ 
+if __name__ == '__main__':
+    unittest.main()
+
+ 

@@ -1,0 +1,15 @@
+{
+  "payload": {
+    "uuid": "21159131-2069-1901-1991-411110011411",
+    "ipId": "22222222-2222-2222-2222-222222222222",
+    "name": "CUSTOMER - VDI Detailed Design-v0.1.docx",
+    "daFileId": "daa36301-d9aa-46e9-8bed-08de0b4320b1",
+    "status": "SENT",
+    "offer": "SampleOffer",
+    "ipTypes":["Discovery & Assessment Reports"],
+    "source": "Field Template",
+    "initialGrade": "B",
+    "priority": "Medium",
+    "phase": "Design"
+  }
+}

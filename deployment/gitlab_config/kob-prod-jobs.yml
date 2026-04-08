@@ -1,0 +1,269 @@
+variables: &prod_variables
+  APP_NAME: $PROJECT_APP_NAME
+  APP_VERSION: $PROJECT_APP_VERSION
+  APP_TAG: $CI_COMMIT_SHORT_SHA
+  PYTHON_VERSION: '3.11'
+  PYTHON: python3.11
+  PYTHONPATH: $CI_PROJECT_DIR
+  TARGET: '.'
+  REQ_FILE: requirements.txt
+  BRANCH: $PROJECT_BRANCH_NAME
+  VAULT_ADDR: $PROD_VAULT_ADDR
+  VAULT_NAMESPACE: $PROD_VAULT_NAMESPACE
+  VAULT_ROLE_ID: $PROD_VAULT_ROLE_ID
+  VAULT_SECRET_ID: $PROD_VAULT_SECRET_ID
+  ENVIRONMENT: "PROD"
+  ENVIRONMENT_TAG: "prod"
+  HARBOR_SERVER: harbor.dell.com
+  HARBOR_NAMESPACE: soas-ds
+  VAULT_HARBOR_SECRET_PATH: kv/HARBOR
+  APPLICATION_NAME: "gpe-ds-allstars 1003565"
+  ARTIFACT_VAULT_PATH: 'kv/ARTIFACTORY'
+  PYTHON_PULL_FROM_INDEX: https://artifacts.dell.com/artifactory/api/pypi/python/simple
+  PYTHON_PUSH_TO_INDEX: https://_USERNAME_:_PASSWORD_artifacts.dell.com/artifactory/api/pypi/services-gpe-python-local # svc a/c credentials injected at runtime
+  ARTIFACT_UPLOAD_PATH: 'artifactory path'
+  ROLLBACK_PROD_DEPLOYMENT: "false"
+  SKIP_SCA_SCAN: true
+  SKIP_SCST_SCAN: true
+  SCM_PROJECT_NAME: $BLACKDUCK_PROJECT_NAME
+  SCM_PROJECT_VERSION: $BLACKDUCK_PROJECT_VERSION
+  PIPELINE_TEMPLATE_URL: https://gitlab.dell.com/api/v4/projects/309757/repository/archive.zip?private_token=glpat-itENDLM3z4RUzv3ZsL-i
+  SVC_ACC_CREDS_PATH: kv/SERVICE_ACCOUNT/non-prod-rw
+  ACCESS_KEY_ID: $AWS_ACCESS_KEY_ID
+  SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY
+  ECS_ENDPOINT: $ECS_ENDPOINT
+  BUCKET_NAME: $BUCKET_NAME
+  VAULT_CONFIG_PATH: kv/KOB/VAULT_CONFIG/$KOB_NAMESPACE_PROD
+  KOB_NAMESPACE: $KOB_NAMESPACE_PROD
+  YML_CONTENT_REPLACE_JSON: |
+    {
+        "deployment": {
+            "_BUILD_VERSION": "$APP_VERSION-$APP_TAG"
+        },
+        "service":{
+            "_route_version": "$$DEPLOYMENT_VERSION"
+        }
+    }
+
+.setup_secret_env: &setup_secret_env
+  - export SVC_ACC_USERNAME=$(hashiauth read $SVC_ACC_CREDS_PATH user_name -j | sed -e 's/^"//' -e 's/"$//')
+  - export SVC_ACC_PASSWORD=$(hashiauth read $SVC_ACC_CREDS_PATH password -j | sed -e 's/^"//' -e 's/"$//')
+  - export AUTH_ENDPOINT=$(hashiauth read $KOB_PRD_PATH AUTH_ENDPOINT -j | sed -e 's/^"//' -e 's/"$//')
+
+
+
+workflow:
+  rules:
+    - if: $CI_MERGE_REQUEST_ID
+      when: never
+    - when: always
+
+default:
+  before_script:
+    - echo "Starting before script for job"
+    - apt-get update && apt-get -y upgrade
+    - apt-get install -y --no-install-recommends build-essential
+    - apt-get install -y --no-install-recommends python-dev-is-python3 gcc
+    - sudo apt install -y python3-psycopg2
+    - sudo apt-get install -y python3-pip
+    - apt-get -y clean && apt-get -y autoclean && apt-get -y autoremove
+    - rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+    - python3 -m pip install pip==25.0.1
+    - python3 -m pip config set global.use-deprecated legacy-resolver
+    - python3 -m pip install --upgrade setuptools
+    - python -m pip install coverage --index-url $PYTHON_PULL_FROM_INDEX
+
+#############################################################
+# ********************Compile Stage *********************** #
+#############################################################
+compile-prod-package:
+  variables:
+    REQ_FILE: requirements.txt
+    <<: *prod_variables
+  extends: .compile-package-python
+  rules:
+    - if: '$CI_COMMIT_REF_NAME == "main" && $ROLLBACK_PROD_DEPLOYMENT == "false"'
+  allow_failure: false
+  when: manual
+  stage: compile-build
+
+##############################################################
+## ***************** Docker Build Stage ******************** #
+##############################################################
+build-prod-image:
+  stage: build-docker-image
+  extends:
+    - .build-container-image
+  variables:
+    <<: *prod_variables
+    APP_TAG: $CI_COMMIT_SHORT_SHA
+    HARBOR_IMAGE: $HARBOR_SERVER/$HARBOR_NAMESPACE
+    VAULT_HARBOR_SECRET_PATH: kv/HARBOR
+    DOCKERFILE: Dockerfile
+    BUILD_LABELS: '--label app.version=$APP_VERSION --label git.commit=$CI_COMMIT_SHA --label git.ref=$CI_COMMIT_REF_NAME --label project.url=$CI_PROJECT_URL --label pipeline.url=$CI_PIPELINE_URL --label job.url=$CI_JOB_URL'
+    BUILD_ARGS: '--build-arg PYTHON=${PYTHON}
+                 --build-arg APP_NAME=${APP_NAME}
+                 --build-arg APP_VERSION=${APP_VERSION}
+                 --build-arg PROXY_USERNAME=${PROXY_USERNAME} 
+                 --build-arg PROXY_PASSWORD=${PROXY_PASSWORD}
+                 --build-arg ACCESS_KEY_ID=${ACCESS_KEY_ID}
+                 --build-arg SECRET_ACCESS_KEY=${SECRET_ACCESS_KEY}
+                 --build-arg ECS_ENDPOINT=${ECS_ENDPOINT}
+                 --build-arg BUCKET_NAME=${BUCKET_NAME}
+                 --build-arg ENVIRONMENT_TAG=${ENVIRONMENT_TAG}
+                 --build-arg VAULT_ROLE_ID=${VAULT_ROLE_ID}
+                 --build-arg VAULT_SECRET_ID=${VAULT_SECRET_ID}
+                 --build-arg VAULT_ADDR=${VAULT_ADDR}
+                 --build-arg VAULT_NAMESPACE=${VAULT_NAMESPACE}
+                 --build-arg KOB_NAMESPACE=${KOB_NAMESPACE}'
+  before_script:
+    - BRANCH="$CI_COMMIT_REF_NAME"
+    - echo "### Pulling latest version from $BRANCH"
+    - git checkout -B $BRANCH
+    - git pull origin $BRANCH
+  allow_failure: false
+  when: manual
+  rules:
+    - if: '$CI_COMMIT_REF_NAME == "main" && $ROLLBACK_PROD_DEPLOYMENT == "false"'
+      needs: [compile-prod-package]
+
+#############################################################
+# ***************** Pre Deploy Stage **************** #
+#############################################################
+pre-deploy-kob-prod-pc1:
+  image: $DOCKER_IMAGE
+  stage: deploy-prod
+  extends:
+    - .update-deployment-kob
+    - .kube-login-kob
+  variables:
+    APP_VERSION: ''
+    APP_NAME: $CI_PROJECT_NAME
+    APP_TAG: $CI_COMMIT_SHORT_SHA
+    KUBECONFIG: /root/.kube/config
+    DEPLOYMENT_FILE: deployment/kob/prod/deployment-green.yml
+    DEPLOYMENT_FILE_GREEN: deployment/kob/prod/deployment-green.yml
+    DEPLOYMENT_FILE_BLUE: deployment/kob/prod/deployment-blue.yml
+    SERVICE_FILE: deployment/kob/prod/service.yml
+    # SECRET_FILE: deployment/kob/prod/secret.yml
+    BUILD_VERSION_PATTERN: '{BUILD_VERSION}'
+    SVC_VERSION_PATTERN: '_route_version'
+    SECRET_PATTERN: '{SECRET}'
+    DEPLOYMENT_KIND: Deployment
+    SERVICE_KIND: Service
+    METADATA_FILENAME: "deploy-jobs.yml"
+    DATACENTER: 'PC1'
+    ENVIRONMENT: 'PROD'
+    VAULT_HARBOR_SECRET_PATH: kv/HARBOR
+    VAULT_CONFIG_PATH: kv/KOB/VAULT_CONFIG/$KOB_NAMESPACE_PROD
+    KOB_NAMESPACE: $KOB_NAMESPACE_PROD
+    <<: *prod_variables
+  before_script:
+    - !reference [ .update-deployment-kob, before_script ]
+    - !reference [ .kube-login-kob, before_script ]
+  script:
+    - |
+      if [ -z "$DEPLOYMENT_VERSION" ]
+      then
+        echo "Blue-Green Deployment not configured"
+        export DEPLOYMENT_FILE=$DEPLOYMENT_FILE_GREEN
+        echo -e "NO DEPLOYMENT FOUND. \n\nNOW DEPLOYMENT IS PROCEEDING FOR GREEN ENVIRONMENT"
+        DEPLOYMENT_VERSION=green
+        if [[ -f $DEPLOYMENT_FILE ]]
+        then
+          sed -i "s/$BUILD_VERSION_PATTERN/$HARBOR_IMAGE_VERSION/" $DEPLOYMENT_FILE
+          kubectl apply -f $DEPLOYMENT_FILE ;
+        else
+          echo "DEPLOYMENT FILE NOT FOUND"
+        fi
+        sleep 120
+        if [[ -f $SERVICE_FILE ]]
+        then
+          sed -i "s/$SVC_VERSION_PATTERN/$DEPLOYMENT_VERSION/" $SERVICE_FILE
+          kubectl apply -f $SERVICE_FILE
+        else
+          echo "SERVICE FILE NOT FOUND"
+        fi
+        sleep 20
+        kubectl delete deployment $DEPLOYMENT_NAME -n $NAMESPACE --ignore-not-found
+        kubectl delete deployment $DEPLOYMENT_NAME-$ENVIRONMENT_TAG -n $NAMESPACE --ignore-not-found
+        kubectl delete hpa $APP_NAME-autoscaler -n $NAMESPACE --ignore-not-found
+      fi
+  tags: [linux]
+  rules:
+    - if: '$CI_COMMIT_REF_NAME == "main" && $ROLLBACK_PROD_DEPLOYMENT == "false"'
+      needs: [build-prod-image]
+    - if: '$CI_COMMIT_REF_NAME == "main" && $ROLLBACK_PROD_DEPLOYMENT == "true"'
+      needs: []
+  when: manual
+
+
+#############################################################
+# ***************** KOB Deployment Stage ****************** #
+#############################################################
+deploy-kob-prod-pc1:
+  extends:
+    - .update-kubeconfig-folder
+    - .update-deployment-kob
+    - .deploy-k8s-prod
+  image: $DOCKER_IMG
+  stage: deploy-prod
+  variables:
+    APP_VERSION: ''
+    APP_TAG: $CI_COMMIT_SHORT_SHA
+    KUBECONFIG: /root/.kube/config
+    BUILD_VERSION_PATTERN: '_BUILD_VERSION'
+    SVC_VERSION_PATTERN: '_route_version'
+    DEPLOYMENT_KIND: Deployment
+    SERVICE_KIND: Service
+    DEPLOYMENT_FILE: k8s-config/prod/deployment-green.yml
+    SERVICE_FILE: k8s-config/prod/service.yml
+    # SECRET_FILE: k8s-config/kob/prod/secret.yml
+    DATACENTER: 'PC1'
+    VAULT_HARBOR_SECRET_PATH: kv/HARBOR
+    VAULT_CONFIG_PATH: kv/KOB/VAULT_CONFIG/$KOB_NAMESPACE_PROD
+    VAULT_SECRET_PATH: kv/APP_SECRETS/$APP_NAME/GenAI
+    SECRET_PATTERN: _FLAT_SECRET
+    DEPLOYMENT_FILE_GREEN: k8s-config/prod/deployment-green.yml
+    DEPLOYMENT_FILE_BLUE: k8s-config/prod/deployment-blue.yml
+    METADATA_FILENAME: "deploy-jobs.yml"
+    KOB_NAMESPACE: $KOB_NAMESPACE_PROD
+    ENVIRONMENT: "prod"
+    TARGET_K8S_OBJECTS: k8s-config/prod/service.yml,k8s-config/prod/deployment-green.yml,k8s-config/prod/deployment-blue.yml
+    <<: *prod_variables
+  before_script:
+    - !reference [ .update-kubeconfig-folder, before_script ]
+    - !reference [ .update-deployment-kob, before_script ]
+  tags: [linux]
+  after_script:
+    - sleep 60
+  rules:
+     - if: '$CI_COMMIT_REF_NAME == "main"'
+  when: manual
+  needs: [pre-deploy-kob-prod-pc1]
+
+
+#############################################################
+# *************** PLX Jobs **************** #
+#############################################################
+
+# plx-job-kob-prod-pc1:
+#   extends:
+#     - .kube-login-kob
+#     - .plx-integration-prod
+#   stage: deploy-prod
+#   variables:
+#     VAULT_CONFIG_PATH: kv/KOB/VAULT_CONFIG/$KOB_NAMESPACE_PROD
+#     IMAGE_TAG: $DOCKER_IMAGE
+#     CLI_NAME: devops-k8s-cli
+#     SECRET_PATH: $VAULT_CONFIG_PATH
+#     DEPLOYMENT_KIND: Deployment
+#     SERVICE_KIND: Service
+#     <<: *prod_variables
+#   rules:
+#     - if: '$CI_COMMIT_REF_NAME == "main"'
+#   needs: [deploy-kob-prod-pc1]
+#   allow_failure: true
+#   after_script:
+#     - sleep 60
+#   when: on_success

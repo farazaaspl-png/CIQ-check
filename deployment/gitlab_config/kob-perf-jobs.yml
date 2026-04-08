@@ -1,0 +1,461 @@
+variables: &perf_variables
+  APP_NAME: $PROJECT_APP_NAME
+  APP_VERSION: $PROJECT_APP_VERSION
+  APP_TAG: $CI_COMMIT_SHORT_SHA
+  PYTHON_VERSION: '3.11'
+  PYTHON: python3.11
+  PYTHONPATH: $CI_PROJECT_DIR
+  TARGET: '.'
+  REQ_FILE: requirements.txt
+  BRANCH: $PROJECT_BRANCH_NAME
+  VAULT_ADDR: $DEV_VAULT_ADDR
+  VAULT_NAMESPACE: $DEV_VAULT_NAMESPACE
+  VAULT_ROLE_ID: $DEV_VAULT_ROLE_ID
+  VAULT_SECRET_ID: $DEV_VAULT_SECRET_ID
+  ENVIRONMENT: "PERF"
+  ENVIRONMENT_TAG: "perf"
+  HARBOR_SERVER: harbor.dell.com
+  HARBOR_NAMESPACE: gpe-ds
+  VAULT_HARBOR_SECRET_PATH: kv/HARBOR
+  APPLICATION_NAME: "gpe-ds-allstars 1003565"
+  ARTIFACT_VAULT_PATH: 'kv/ARTIFACTORY'
+  SCM_PROJECT_NAME: $BLACKDUCK_PROJECT_NAME
+  SCM_PROJECT_VERSION: $BLACKDUCK_PROJECT_VERSION
+  PIPELINE_TEMPLATE_URL: https://gitlab.dell.com/api/v4/projects/309757/repository/archive.zip?private_token=glpat-itENDLM3z4RUzv3ZsL-i
+  HEALTH_CHECK_URL: $PERF_HEALTH_CHECK_URL
+  PYTHON_PULL_FROM_INDEX: https://artifacts.dell.com/artifactory/api/pypi/python/simple
+  PYTHON_PUSH_TO_INDEX: https://_USERNAME_:_PASSWORD_artifacts.dell.com/artifactory/api/pypi/services-gpe-python-local # svc a/c credentials injected at runtime
+  ARTIFACT_UPLOAD_PATH: 'artifactory path'
+  ROLLBACK_PERF_DEPLOYMENT: "false"
+  SKIP_SCA_SCAN: true
+  SKIP_SCST_SCAN: true
+  INGRESS_CLASS: $PERF_INGRESS_CLASS_NAME
+  SVC_ACC_CREDS_PATH: kv/SERVICE_ACCOUNT/non-prod-rw
+  ACCESS_KEY_ID: $AWS_ACCESS_KEY_ID
+  SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY
+  ECS_ENDPOINT: $ECS_ENDPOINT
+  BUCKET_NAME: $BUCKET_NAME
+  KOB_NAMESPACE: $KOB_NAMESPACE_PERF
+  YML_CONTENT_REPLACE_JSON: |
+    {
+        "deployment": {
+            "_BUILD_VERSION": "$APP_VERSION-$APP_TAG"
+        },
+        "service":{
+            "_route_version": "$$DEPLOYMENT_VERSION"
+        }
+    }
+
+
+
+
+.setup_secret_env: &setup_secret_env
+  - export SVC_ACC_USERNAME=$(hashiauth read $SVC_ACC_CREDS_PATH user_name -j | sed -e 's/^"//' -e 's/"$//')
+  - export SVC_ACC_PASSWORD=$(hashiauth read $SVC_ACC_CREDS_PATH password -j | sed -e 's/^"//' -e 's/"$//')
+  - export AUTH_ENDPOINT=$(hashiauth read $KOB_PRD_PATH AUTH_ENDPOINT -j | sed -e 's/^"//' -e 's/"$//')
+
+workflow:
+  rules:
+    - if: $CI_MERGE_REQUEST_ID
+      when: never
+    - when: always
+
+default:
+  before_script:
+    - echo "Starting before script for job"
+    - apt-get update && apt-get -y upgrade
+    - apt-get install -y --no-install-recommends build-essential
+    - apt-get install -y --no-install-recommends python-dev-is-python3 gcc
+    - sudo apt install -y python3-psycopg2
+    - sudo apt-get install -y python3-pip
+    - apt-get -y clean && apt-get -y autoclean && apt-get -y autoremove
+    - rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+    - python3 -m pip install pip==25.0.1
+    - python3 -m pip config set global.use-deprecated legacy-resolver
+    - python3 -m pip install --upgrade setuptools
+
+#############################################################
+# ********************Compile Stage *********************** #
+#############################################################
+compile-perf-package:
+  variables:
+    REQ_FILE: requirements.txt
+    <<: *perf_variables
+  extends: .compile-package-python
+  rules:
+    - if: '$CI_COMMIT_REF_NAME =~ /^uat.*$/ && $ROLLBACK_PERF_DEPLOYMENT == "false"'
+  allow_failure: false
+  when: on_success
+  stage: compile-build
+
+##############################################################
+## ***************** Docker Build Stage ******************** #
+##############################################################
+build-perf-image:
+  stage: build-docker-image
+  extends:
+    - .build-container-image
+  variables:
+    <<: *perf_variables
+    APP_TAG: $CI_COMMIT_SHORT_SHA
+    HARBOR_IMAGE: $HARBOR_SERVER/$HARBOR_NAMESPACE
+    VAULT_HARBOR_SECRET_PATH: kv/HARBOR
+    DOCKERFILE: Dockerfile
+    BUILD_LABELS: '--label app.version=$APP_VERSION --label git.commit=$CI_COMMIT_SHA --label git.ref=$CI_COMMIT_REF_NAME --label project.url=$CI_PROJECT_URL --label pipeline.url=$CI_PIPELINE_URL --label job.url=$CI_JOB_URL'
+    BUILD_ARGS: '--build-arg PYTHON=${PYTHON}
+                 --build-arg APP_NAME=${APP_NAME}
+                 --build-arg APP_VERSION=${APP_VERSION}
+                 --build-arg PROXY_USERNAME=${PROXY_USERNAME} 
+                 --build-arg PROXY_PASSWORD=${PROXY_PASSWORD}
+                 --build-arg ACCESS_KEY_ID=${ACCESS_KEY_ID}
+                 --build-arg SECRET_ACCESS_KEY=${SECRET_ACCESS_KEY}
+                 --build-arg ECS_ENDPOINT=${ECS_ENDPOINT}
+                 --build-arg BUCKET_NAME=${BUCKET_NAME}
+                 --build-arg ENVIRONMENT_TAG=${ENVIRONMENT_TAG}
+                 --build-arg VAULT_ROLE_ID=${VAULT_ROLE_ID}
+                 --build-arg VAULT_SECRET_ID=${VAULT_SECRET_ID}
+                 --build-arg VAULT_ADDR=${VAULT_ADDR}
+                 --build-arg VAULT_NAMESPACE=${VAULT_NAMESPACE}
+                 --build-arg KOB_NAMESPACE=${KOB_NAMESPACE}'
+  before_script:
+    - BRANCH="$CI_COMMIT_REF_NAME"
+    - echo "### Pulling latest version from $BRANCH"
+    - git checkout -B $BRANCH
+    - git pull origin $BRANCH
+  allow_failure: false
+  when: manual
+  rules:
+    - if: '$CI_COMMIT_REF_NAME =~ /^uat.*$/ && $ROLLBACK_PERF_DEPLOYMENT == "false"'
+
+#############################################################
+# ***************** Pre Deploy Stage **************** #
+#############################################################
+
+pre-deploy-perf-kob:
+  image: $DOCKER_IMAGE
+  stage: deploy-perf
+  extends:
+    - .update-deployment-kob
+    - .kube-login-kob
+  variables:
+    APP_VERSION: ''
+    APP_NAME: $CI_PROJECT_NAME
+    APP_TAG: $CI_COMMIT_SHORT_SHA
+    KUBECONFIG: /root/.kube/config
+    DEPLOYMENT_FILE: deployment/kob/perf/deployment-green.yml
+    DEPLOYMENT_FILE_GREEN: deployment/kob/perf/deployment-green.yml
+    DEPLOYMENT_FILE_BLUE: deployment/kob/perf/deployment-blue.yml
+    SERVICE_FILE: deployment/kob/perf/service.yml
+    # SECRET_FILE: deployment/kob/perf/secret.yml
+    BUILD_VERSION_PATTERN: '{BUILD_VERSION}'
+    SVC_VERSION_PATTERN: '_route_version'
+    SECRET_PATTERN: '{SECRET}'
+    DEPLOYMENT_KIND: Deployment
+    SERVICE_KIND: Service
+    METADATA_FILENAME: "deploy-jobs.yml"
+    DATACENTER: 'PC1'
+    ENVIRONMENT: 'PERF'
+    VAULT_HARBOR_SECRET_PATH: kv/HARBOR
+    VAULT_CONFIG_PATH: kv/KOB/VAULT_CONFIG/$KOB_NAMESPACE_PERF
+    KOB_NAMESPACE: $KOB_NAMESPACE_PERF
+    <<: *perf_variables
+  before_script:
+    - !reference [ .update-deployment-kob, before_script ]
+    - !reference [ .kube-login-kob, before_script ]
+  script:
+    - |
+      if [ -z "$DEPLOYMENT_VERSION" ]
+      then
+        echo "Blue-Green Deployment not configured"
+        export DEPLOYMENT_FILE=$DEPLOYMENT_FILE_GREEN
+        echo -e "NO DEPLOYMENT FOUND. \n\nNOW DEPLOYMENT IS PROCEEDING FOR GREEN ENVIRONMENT"
+        DEPLOYMENT_VERSION=green
+        if [[ -f $DEPLOYMENT_FILE ]]
+        then
+          sed -i "s/$BUILD_VERSION_PATTERN/$HARBOR_IMAGE_VERSION/" $DEPLOYMENT_FILE
+          kubectl apply -f $DEPLOYMENT_FILE ;
+        else
+          echo "DEPLOYMENT FILE NOT FOUND"
+        fi
+        sleep 60
+        if [[ -f $SERVICE_FILE ]]
+        then
+          sed -i "s/$SVC_VERSION_PATTERN/$DEPLOYMENT_VERSION/" $SERVICE_FILE
+          kubectl apply -f $SERVICE_FILE
+        else
+          echo "SERVICE FILE NOT FOUND"
+        fi
+        sleep 20
+        kubectl delete deployment $DEPLOYMENT_NAME -n $NAMESPACE --ignore-not-found
+        kubectl delete deployment $DEPLOYMENT_NAME-$ENVIRONMENT_TAG -n $NAMESPACE --ignore-not-found
+        kubectl delete hpa $APP_NAME-autoscaler -n $NAMESPACE --ignore-not-found
+      fi
+  tags: [linux]
+  rules:
+    - if: '$CI_COMMIT_REF_NAME =~ /^uat.*$/ && $ROLLBACK_PERF_DEPLOYMENT == "false"'
+      needs: [build-perf-image]
+    - if: '$CI_COMMIT_REF_NAME =~ /^uat.*$/ && $ROLLBACK_PERF_DEPLOYMENT == "true"'
+      needs: []
+  when: on_success
+
+
+#############################################################
+# *************** PERF KOB Deployment Stage **************** #
+#############################################################
+deploy-perf-kob:
+  extends:
+    - .update-kubeconfig-folder
+    - .update-deployment-kob
+    - .deploy-k8s
+  image: $DOCKER_IMG
+  stage: deploy-perf
+  variables:
+    APP_VERSION: ''
+    APP_TAG: $CI_COMMIT_SHORT_SHA
+    KUBECONFIG: /root/.kube/config
+    BUILD_VERSION_PATTERN: '_BUILD_VERSION'
+    SVC_VERSION_PATTERN: '_route_version'
+    DEPLOYMENT_KIND: Deployment
+    SERVICE_KIND: Service
+    DEPLOYMENT_FILE: k8s-config/perf/deployment-green.yml
+    SERVICE_FILE: k8s-config/perf/service.yml
+    # SECRET_FILE: k8s-config/kob/perf/secret.yml
+    DATACENTER: 'PC1'
+    VAULT_HARBOR_SECRET_PATH: kv/HARBOR
+    DEPLOYMENT_FILE_GREEN: k8s-config/perf/deployment-green.yml
+    DEPLOYMENT_FILE_BLUE: k8s-config/perf/deployment-blue.yml
+    METADATA_FILENAME: "deploy-jobs.yml"
+    ENVIRONMENT: 'PERF'
+    VAULT_CONFIG_PATH: kv/KOB/VAULT_CONFIG/$KOB_NAMESPACE_PERF
+    VAULT_SECRET_PATH: kv/APP_SECRETS/$APP_NAME/GenAINP
+    SECRET_PATTERN: _FLAT_SECRET
+    KOB_NAMESPACE: $KOB_NAMESPACE_PERF
+    TARGET_K8S_OBJECTS: k8s-config/perf/service.yml,k8s-config/perf/deployment-green.yml,k8s-config/perf/deployment-blue.yml
+    # TARGET_K8S_OBJECTS: deployment/kob/perf/service.yml,deployment/kob/perf/deployment-green.yml,deployment/kob/perf/deployment-green.yml
+    <<: *perf_variables
+  before_script:
+    - !reference [ .update-kubeconfig-folder, before_script ]
+    - !reference [ .update-deployment-kob, before_script ]
+  tags: [linux]
+  after_script:
+    - sleep 60
+  rules:
+    - if: '$CI_COMMIT_REF_NAME =~ /^uat.*$/'
+  when: on_success
+  needs: [pre-deploy-perf-kob]
+
+#############################################################
+# *************** PLX Job **************** #
+#############################################################
+
+# plx-job-perf:
+#   extends:
+#     - .kube-login-kob
+#     - .plx-integration
+#   stage: deploy-perf
+#   variables:
+#     VAULT_CONFIG_PATH: kv/KOB/VAULT_CONFIG/$KOB_NAMESPACE_PERF
+#     IMAGE_TAG: $DOCKER_IMAGE
+#     CLI_NAME: devops-k8s-cli
+#     SECRET_PATH: $VAULT_CONFIG_PATH
+#     DEPLOYMENT_KIND: Deployment
+#     SERVICE_KIND: Service
+#     <<: *perf_variables
+#   rules:
+#     - if: '$CI_COMMIT_REF_NAME =~ /^uat.*$/'
+#   needs: [deploy-perf-kob]
+#   allow_failure: true
+#   after_script:
+#     - sleep 60
+#   when: on_success
+
+# #############################################################
+# # ***************DEPLOYMENT HEALTH SANITY **************** #
+# #############################################################
+
+# validate-deploy-perf-kob:
+#   image: $DOCKER_IMAGE
+#   stage: deploy-perf
+#   extends:
+#     - .kube-login-kob
+#   variables:
+#     APP_NAME: $CI_PROJECT_NAME
+#     KUBECONFIG: /root/.kube/config
+#     DEPLOYMENT_KIND: Deployment
+#     SERVICE_KIND: Service
+#     METADATA_FILENAME: "deploy-jobs.yml"
+#     DATACENTER: 'PC1'
+#     SVC_VERSION_PATTERN: '{route_version}'
+#     VAULT_HARBOR_SECRET_PATH: kv/HARBOR
+#     VAULT_CONFIG_PATH: kv/KOB/VAULT_CONFIG/$KOB_NAMESPACE_PERF
+#     VS_FILE: virtual-server-test.yml
+#     SERVICE_FILE: service-test.yml
+#     KOB_NAMESPACE: $KOB_NAMESPACE_PERF
+#     <<: *perf_variables
+#   script:
+#     - echo "Deployment validation started"
+#     - curl -o pipeline_project.zip $PIPELINE_TEMPLATE_URL
+#     - unzip -q pipeline_project.zip
+#     - mv nba-csg-pipeline-template-main-* nba-csg-pipeline-template
+#     - cd nba-csg-pipeline-template
+#     - cd Kube
+#     - cd kob
+#     - ls
+#     - if [[ $DEPLOYMENT_VERSION == "green" ]]; then export DEPLOYMENT_VERSION=blue; else export DEPLOYMENT_VERSION=green; fi
+#     - echo "DEPLOYMENT VERSION => $DEPLOYMENT_VERSION"
+#     - |
+#       if [ -z "$HEALTH_CHECK_URL" ]; then
+#         # If not, export a new one
+#         export HEALTH_CHECK_URL="https://perf-$APP_NAME.prod-d1.kob.dell.com/api/v0/health"
+#       fi
+#     - echo "HEALTH CHECK URL => $HEALTH_CHECK_URL"
+#     - export PERF_HOSTNAME=$(echo $HEALTH_CHECK_URL | awk -F[/:] '{print $4}')
+#     - echo "Hostname => $PERF_HOSTNAME"
+#     - sed -i "s/{APP_NAME}/$APP_NAME/g" $VS_FILE $SERVICE_FILE
+#     - sed -i "s/{KUBE_KOB_NAMESPACE}/$KOB_NAMESPACE/g" $VS_FILE $SERVICE_FILE
+#     - sed -i "s/$SVC_VERSION_PATTERN/$DEPLOYMENT_VERSION/" $SERVICE_FILE
+#     - sed -i "s/{HOSTNAME}/$PERF_HOSTNAME/g" $VS_FILE $SERVICE_FILE
+#     - sed -i "s/{INGRESS_CLASS_NAME}/$INGRESS_CLASS/g" $VS_FILE $SERVICE_FILE
+#     - kubectl apply -f $VS_FILE
+#     - kubectl apply -f $SERVICE_FILE
+#     - sleep 20
+#     - curl -s $BP_VERSION_SH > bp_version.sh;source bp_version.sh
+#     - export TEST_CHECK_URL=$(echo $HEALTH_CHECK_URL | sed 's|https://|https://test-|')
+#     - echo "TEST CHECK URL => $TEST_CHECK_URL"
+#     - RESPONSE=$(curl -Sso /dev/null -w "%{response_code}" $TEST_CHECK_URL | head -n 1 | cut -d$' ' -f2)
+#     - echo "$TEST_CHECK_URL RECEIVED STATUS CODE [$RESPONSE]"
+#     - echo "Deleting the test ingress and service"
+#     - kubectl delete virtualserver test-$APP_NAME-server -n $KOB_NAMESPACE
+#     - kubectl delete service test-$APP_NAME-service -n $KOB_NAMESPACE
+#     - if [[ "$RESPONSE" == "200" ]]; then echo "Health check successful!"; else echo "Health check failed."; exit 1; fi
+#     - echo "Deployment validation completed"
+#   tags: [linux]
+#   rules:
+#     - if: '$CI_COMMIT_REF_NAME =~ /^uat.*$/'
+#   retry: 1
+#   when: on_success
+#   needs: [plx-job-perf]
+
+# ##############################################################
+# ## *************** Switch route Stage **************** #
+# ##############################################################
+# switch-route-perf-kob:
+#   extends:
+#     - .update-kubeconfig-folder
+#     - .update-service-kob
+#     - .switch-route-k8s
+#   variables:
+#     SERVICE_FILE: k8s-config/kob/perf/service.yml
+#     VAULT_CONFIG_PATH: kv/KOB/VAULT_CONFIG/$KOB_NAMESPACE_PERF
+#     DEPLOY_KIND: Service
+#     SERVICE_NAME: $APP_NAME-service
+#     NAMESPACE: $KOB_NAMESPACE_PERF
+#     DEPLOYMENT_NAME: $DEPLOYMENT_NAME-$ENVIRONMENT_TAG
+#     <<: *perf_variables
+#   before_script:
+#     - !reference [ .update-kubeconfig-folder, before_script ]
+#     - !reference [ .update-service-kob, before_script ]
+#   after_script:
+#     - echo "Switch route completed"
+#   rules:
+#     - if: '$CI_COMMIT_REF_NAME =~ /^uat.*$/'
+#   stage: deploy-perf
+#   when: on_success
+#   needs: [validate-deploy-perf-kob]
+
+# ##############################################################
+# ## ************* PERF Health validation Stage ****************#
+# ##############################################################
+# healthcheck-perf-kob:
+#   image: harbor.dell.com/devops-images/debian-base-devops/bullseye:latest
+#   stage: validate-deploy-perf
+#   extends: .healthcheck
+#   variables:
+#     STATUS: 1
+#     <<: *perf_variables
+#   tags: [linux]
+#   before_script:
+#     - |
+#       if [ -z "$HEALTH_CHECK_URL" ]; then
+#         # If not, export a new one
+#         export HEALTH_CHECK_URL="https://perf-$APP_NAME.prod-d1.kob.dell.com/api/v0/health"
+#       fi
+#     - echo "HEALTH CHECK URL => $HEALTH_CHECK_URL"
+#   rules:
+#     - if: '$CI_COMMIT_REF_NAME =~ /^uat.*$/'
+#   needs: [switch-route-perf-kob]
+#   when: on_success
+
+# ##############################################################
+# ## *************Removing existing deployment**************** #
+# ##############################################################
+
+# post-deploy-perf-kob:
+#   image: $DOCKER_IMAGE
+#   stage: post-deploy-perf
+#   extends:
+#     - .kube-login-kob
+#   variables:
+#     APP_NAME: $CI_PROJECT_NAME
+#     KUBECONFIG: /root/.kube/config
+#     DEPLOYMENT_KIND: Deployment
+#     SERVICE_KIND: Service
+#     METADATA_FILENAME: "deploy-jobs.yml"
+#     DATACENTER: 'PC1'
+#     SVC_VERSION_PATTERN: '_route_version'
+#     VAULT_HARBOR_SECRET_PATH: kv/HARBOR
+#     VAULT_CONFIG_PATH: kv/KOB/VAULT_CONFIG/$KOB_NAMESPACE_PERF
+#     KOB_NAMESPACE: $KOB_NAMESPACE_PERF
+#     <<: *perf_variables
+#   script:
+#     - echo "Post deployment started"
+#     - if [[ $DEPLOYMENT_VERSION == "green" ]]; then export DELETING_VERSION=blue; else export DELETING_VERSION=green; fi
+#     - echo "Deleting the $DELETING_VERSION deployment"
+#     - kubectl delete deployment $APP_NAME-deployment-$DELETING_VERSION -n $KOB_NAMESPACE  --ignore-not-found
+#     - kubectl delete deployment $APP_NAME-deployment-$DELETING_VERSION-$ENVIRONMENT_TAG -n $KOB_NAMESPACE --ignore-not-found
+#     - kubectl delete hpa $APP_NAME-autoscaler-$DELETING_VERSION -n $KOB_NAMESPACE
+#     - echo "Post deployment completed"
+#   tags: [ linux ]
+#   rules:
+#     - if: '$CI_COMMIT_REF_NAME =~ /^uat.*$/ && $ROLLBACK_PERF_DEPLOYMENT == "false"'
+#       needs: [healthcheck-perf-kob]
+#     - if: '$CI_COMMIT_REF_NAME =~ /^uat.*$/ && $ROLLBACK_PERF_DEPLOYMENT == "true"'
+#       needs: [healthcheck-perf-kob]
+#   when: on_success
+
+# rollback-deployment-perf-kob:
+#   image: $DOCKER_IMAGE
+#   stage: post-deploy-perf
+#   extends:
+#     - .kube-login-kob
+#   variables:
+#     APP_NAME: $CI_PROJECT_NAME
+#     KUBECONFIG: /root/.kube/config
+#     DEPLOYMENT_KIND: Deployment
+#     SERVICE_KIND: Service
+#     METADATA_FILENAME: "deploy-jobs.yml"
+#     DATACENTER: 'PC1'
+#     SVC_VERSION_PATTERN: '{route_version}'
+#     VAULT_HARBOR_SECRET_PATH: kv/HARBOR
+#     VAULT_CONFIG_PATH: kv/KOB/VAULT_CONFIG/$KOB_NAMESPACE_PERF
+#     SERVICE_FILE: deployment/kob/perf/service.yml
+#     KOB_NAMESPACE: $KOB_NAMESPACE_PERF
+#     <<: *perf_variables
+#   script:
+#     - echo "Post deployment started"
+#     - if [[ $DEPLOYMENT_VERSION == "green" ]]; then export ROLLBACK_VERSION=blue; else export ROLLBACK_VERSION=green; fi
+#     - echo "Deleting the $DEPLOYMENT_VERSION deployment"
+#     - sed -i "s/{APP_NAME}/$APP_NAME/g" $SERVICE_FILE
+#     - sed -i "s/{KUBE_KOB_NAMESPACE}/$KOB_NAMESPACE/g" $SERVICE_FILE
+#     - sed -i "s/$SVC_VERSION_PATTERN/$ROLLBACK_VERSION/" $SERVICE_FILE
+#     - kubectl apply -f $SERVICE_FILE
+#     - kubectl delete deployment $APP_NAME-deployment-$DEPLOYMENT_VERSION -n $KOB_NAMESPACE --ignore-not-found
+#     - kubectl delete deployment $APP_NAME-deployment-$DEPLOYMENT_VERSION-$ENVIRONMENT_TAG -n $KOB_NAMESPACE --ignore-not-found
+#     - kubectl delete hpa $APP_NAME-autoscaler-$DEPLOYMENT_VERSION -n $KOB_NAMESPACE
+#     - echo "Post deployment completed"
+#   tags: [ linux ]
+#   rules:
+#     - if: '$CI_COMMIT_REF_NAME =~ /^uat.*$/ && $ROLLBACK_PERF_DEPLOYMENT == "false"'
+#   when: on_failure
+#   needs: [healthcheck-perf-kob]
+

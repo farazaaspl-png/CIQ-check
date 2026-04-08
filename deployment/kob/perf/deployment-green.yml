@@ -1,0 +1,134 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {APP_NAME}-constants-perf
+  namespace: {KUBE_KOB_NAMESPACE}
+data:
+  API_NAME: {APP_NAME}
+  API_VERSION: {APP_VERSION}
+  ENVIRONMENT: {APP_ENV}
+  DATACENTER: {ENV_DATACENTER}
+  KOB_NAMESPACE: {KUBE_KOB_NAMESPACE}
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {APP_NAME}-deployment-green-perf
+  namespace: {KUBE_KOB_NAMESPACE}
+  labels:
+    app: {APP_NAME}
+    version: 'green'
+    environment: 'perf'
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: {APP_NAME}
+      version: 'green'
+      environment: 'perf'
+  template:
+    metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+      labels:
+        app: {APP_NAME}
+        version: 'green'
+        environment: 'perf'
+    spec:
+      terminationGracePeriodSeconds: 0
+      containers:
+        - name: {APP_NAME}
+          image: harbor.dell.com/gpe-ds/ip-content-management:{BUILD_VERSION}
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1001
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop:
+                - ALL
+          imagePullPolicy: Always
+          resources:
+            requests:
+              memory: "8Gi"
+              cpu: "2"
+            limits:
+              memory: "8Gi"
+              cpu: "2"
+          env:
+          - name: MAX_WORKERS
+            value: "1"
+          - name: AUTOWRAPT_BOOTSTRAP
+            value: autodynatrace
+          - name: AUTODYNATRACE_APPLICATION_ID
+            value: ip_content_management
+          - name: AUTODYNATRACE_FORKABLE
+            value: "true"
+          ports:
+            - containerPort: 8080
+          # livenessProbe:
+          #   httpGet:
+          #     path: /api/v0/health
+          #     port: 8080
+          #   initialDelaySeconds: 300
+          #   periodSeconds: 30
+          #   timeoutSeconds: 10
+          envFrom:
+            - configMapRef:
+                name: {APP_NAME}-constants-perf
+      securityContext:
+        sysctls:
+            - name: net.ipv4.ip_unprivileged_port_start
+              value: "80"
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {APP_NAME}-autoscaler-green-perf
+  namespace: {KUBE_KOB_NAMESPACE}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {APP_NAME}-deployment-green-perf
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 90
+
+---
+apiVersion: k8s.nginx.org/v1
+kind: VirtualServer
+metadata:
+  name: {APP_NAME}-server
+  namespace: {KUBE_KOB_NAMESPACE}
+spec:
+  host: {APP_NAME}.dev-a1-np.kob.dell.com
+  ingressClassName: {INGRESS_CLASS_NAME}
+  tls:
+    redirect:
+      enable: true
+  upstreams:
+    - name: {APP_NAME}-service
+      service: {APP_NAME}-service
+      port: 80
+      lb-method: round_robin
+  routes:
+    - path: /
+      action:
+        pass: {APP_NAME}-service
+  server-snippets: |
+    underscores_in_headers on;

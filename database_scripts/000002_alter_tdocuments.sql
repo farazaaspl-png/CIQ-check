@@ -1,0 +1,1 @@
+ALTER TABLE ciq_fssit.tdocument RENAME COLUMN confidence_score TO relevance_score;

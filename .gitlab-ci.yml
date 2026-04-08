@@ -1,0 +1,68 @@
+include:
+    - local: deployment/gitlab_config/kob-dev-jobs.yml
+    - local: deployment/gitlab_config/kob-perf-jobs.yml
+    - local: deployment/gitlab_config/kob-prod-jobs.yml
+    - local: deployment/custom-script.yml
+    - project: devops/job-templates
+      ref: v3.0.0
+      file: python-jobs.yml
+    - project: devops/job-templates
+      ref: v3.0.0
+      file: java-jobs.yml
+    - project: devops/image-template
+      file: images-jobs.yml
+    - project: devops/job-templates
+      ref: v3.0.0
+      file: deploy-jobs.yml
+    - project: devops/job-templates
+      ref: v3.0.0
+      file: test-jobs.yml
+    # - project: devops/job-templates
+    #   ref: v3.0.0
+    #   file: security-jobs.yml
+    - project: devops/release/test-automation/sharedjobs
+      ref: v4.2.7
+      file: devops-sbox.yml
+    - project: qe/perf/dcs-perf/pipelineenginetemplate
+      ref: main
+      file: PipelineEngineImage.yml
+    - project: devops/job-templates
+      ref: v3.0.0
+      file: cicd-stages.yml
+    - project: devops/cicd-constructs
+      ref: v3.0.0
+      file: cicd-constructs.yml
+
+
+variables:
+  PROJECT_APP_NAME: 'ip-content-management'
+  PROJECT_APP_VERSION: '1.0.0'
+  PROJECT_BRANCH_NAME: $CI_COMMIT_REF_NAME
+  UI_APP_NAME: 'streamlit'
+
+  #Deployment variables
+  KOB_NAMESPACE_DEV: deploy-agentic-np
+  # DEV_INGRESS_CLASS_NAME: 'kob-ingress-consult-np'
+  DEV_HEALTH_CHECK_URL: 'https://$PROJECT_APP_NAME.dev-v1-np.kob.dell.com/api/v0/health'
+
+  KOB_NAMESPACE_PERF: deploy-agentic-np
+  # DEV_INGRESS_CLASS_NAME: 'kob-ingress-consult-np'
+  PERF_HEALTH_CHECK_URL: 'https://$PROJECT_APP_NAME.dev-v1-np.kob.dell.com/api/v0/health'
+
+  KOB_NAMESPACE_PROD: consult-prod
+  # PROD_PC1_INGRESS_CLASS_NAME: 'kob-ingress-process-eng-prd'
+  PROD_PC1_HEALTH_CHECK_URL: 'https://$PROJECT_APP_NAME.prod-v1.kob.dell.com/api/v0/health'
+
+stages:
+  - compile-build
+  # - verify-build
+  - build-docker-image
+  - deploy-dev
+  # - validate-deploy-dev
+  # - post-deploy-dev
+  - deploy-perf
+  # - validate-deploy-perf
+  # - post-deploy-perf
+  - deploy-prod
+  # - validate-prod
+  # - post-deploy-prod
