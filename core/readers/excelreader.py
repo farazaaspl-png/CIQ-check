@@ -693,6 +693,9 @@ class ExcelExtractor:
         """Calculate adaptive eps based on data density"""
         coords = sheetdf[sheetdf['value'].str.strip() != ''][['col', 'row']].values
 
+        if len(coords) < 2:
+            return 1.5
+
         # Calculate nearest neighbor distances
         from sklearn.neighbors import NearestNeighbors
         nbrs = NearestNeighbors(n_neighbors=2, metric='manhattan').fit(coords)
@@ -789,7 +792,9 @@ class ExcelExtractor:
 
         # self.assembled = list(set(self.assembled))
     def _table_parser(self,datarows):
-        datarows = [line[4:].split('~') for line in datarows]
+        datarows = [line[4:] for line in datarows]
+        datarows = ['emptycell' + line  if line.startswith('~') else line for line in datarows]
+        datarows = [line.split('~') for line in datarows]
         isnotheader = True
         has_table_data = True
         while isnotheader:
@@ -840,6 +845,22 @@ class ExcelExtractor:
         for row in datarows[1:]:
             padded_row = row + [None] * (max_cols - len(row))
             padded_data.append(padded_row)
+        
+        # # Check for unusual condition and fix column mismatch
+        # max_data_cols = max([len(row) for row in padded_data]) if padded_data else max_cols
+        
+        # if max_cols != max_data_cols:
+        #     # Normal mismatch handling (original logic)
+        #     if max_cols < max_data_cols:
+        #         # Header is shorter, pad header to match data
+        #         datarows[0] = datarows[0] + [None] * (max_data_cols - max_cols)
+        #         max_cols = max_data_cols
+        #         # Re-pad all data rows to match the new header length
+        #         padded_data = []
+        #         for row in datarows[1:]:
+        #             padded_row = row + [None] * (max_cols - len(row))
+        #             padded_data.append(padded_row)
+                
         return(pd.DataFrame(padded_data, columns=datarows[0]))
         
     def get_filecontent(self, get_ocr = False):

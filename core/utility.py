@@ -124,6 +124,7 @@ _WHITE_VARIATIONS = [
             'EEE8AA',  # Pale goldenrod
             'F0E68C',  # Khaki
             'BDB76B',  # Dark khaki
+            'FFFFE5',
         ]
 ##############DO NOT DELETE THIS##############################################################################################################
 # pip install transformers

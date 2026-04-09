@@ -46,7 +46,7 @@ class GTLFeedbackHandler(MessageHandler):
 
     def send_notification(self,header, exp):
         context = header.copy()
-        context['error_text'] = exp.error_message
+        context['error_text'] = exp.internal_message
         notify_failures(context,f'GTL Feedback|{exp.error_code}') 
 
     def handle(self, header: Dict, payload: Dict) -> None:
@@ -138,7 +138,7 @@ class GTLFeedbackHandler(MessageHandler):
  
             except Exception as e:
                 logger.error(f"{fuuid} - Failed to update TDocument status: {e}", exc_info=True)
-                self.send_notification(header,UnExpectedError(e))
+                self.send_notification(header,UnExpectedError(e).to_dict())
             # finally:
             #         if 'db' in locals(): del db
         
@@ -218,7 +218,7 @@ class GTLFeedbackHandler(MessageHandler):
 
                 except Exception as e:
                     logger.error(f"Failed to process FILE_INFO_UPDATE: {e}", exc_info=True)
-                    self.send_notification(header,UnExpectedError(e))
+                    self.send_notification(header,UnExpectedError(e).to_dict())
                 # finally:
                 #     if 'db' in locals(): del db
             elif eventSubType == 'MIGRATION_APPROVE':
@@ -259,12 +259,12 @@ class GTLFeedbackHandler(MessageHandler):
                         logger.info(f"Document updated with title and description")
                 except Exception as e:
                     logger.error(f"Failed to process document for migration approve: {e}", exc_info=True)
-                    self.send_notification(header,UnExpectedError(e))
+                    self.send_notification(header,UnExpectedError(e).to_dict())
                 # finally:
                 #     if 'db' in locals(): del db
         else: 
             logger.error(f"Invalid event type: {header.get('eventType')}", exc_info=True)
-            self.send_notification(header,UnExpectedError(e))
+            self.send_notification(header,UnExpectedError(e).to_dict())
             return
     logger.info("Feedback recording completed")
 
@@ -301,7 +301,7 @@ class GTLFeedbackHandler(MessageHandler):
 
         except Exception as e:
             logger.error(f"Error while generating description and title for approved document: {e}", exc_info=True)
-            self.send_notification(header,UnExpectedError(e))
+            self.send_notification(header,UnExpectedError(e).to_dict())
         # vector.vectorize_documents_by_dafileids([dafileid])                
         # logger.info(f"{requestId} - Document vectorized for approved status, dafileid={dafileid}")
 

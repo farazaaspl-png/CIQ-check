@@ -12,7 +12,8 @@ class CustomBaseException(Exception):
         return {
             'status' : 'FAILED',
             'error_code': self.error_code,
-            'error_message': self.user_message
+            'error_message': self.user_message,
+            'internal_message' : self.message
         }
     
     def __str__(self):

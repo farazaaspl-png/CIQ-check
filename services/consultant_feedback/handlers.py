@@ -35,7 +35,7 @@ class RecommendationFeedbackHandler(MessageHandler):
     
     def send_notification(self,header, exp):
         context = header.copy()
-        context['error_text'] = exp.error_message
+        context['error_text'] = exp.internal_message
         notify_failures(context,f'GTL Feedback|{exp.error_code}')
         
     # def send_failure(self, requestUuid: str, payload: Dict, eventSubType:str ="PROCESSING_ERROR",project_id:str = "",requestId:str = ""):
@@ -73,7 +73,7 @@ class RecommendationFeedbackHandler(MessageHandler):
         if header.get("eventSubType") in ("ACCEPT_RECOMMENDATION", "SKIP_RECOMMENDATION"):
             missing = [k for k in ("status", "recommendationId") if not payload.get(k)]
             if len(missing)>0:
-                exp = InvalidMetadataError(missing)
+                exp = InvalidMetadataError(missing).to_dict()
                 logger.error(f"Unexpected error on {exp}", exc_info=True)
                 self.send_notification(header, exp)
                 # self.send_failure(request_uuid, InvalidMetadataError(missing).to_dict(),requestId = request_id)
@@ -83,7 +83,7 @@ class RecommendationFeedbackHandler(MessageHandler):
                record_feedback(header,payload,cfg.DEBUG)
             except CustomBaseException as exc:
                 logger.error(f"{exc}", exc_info=True)
-                self.send_notification(header, exc)
+                self.send_notification(header, exc.to_dict())
                 # self.send_failure(request_uuid, exc.to_dict(),requestId = request_id)
             except Exception as exc:
                 logger.error(f"{exc}", exc_info=True)
@@ -104,5 +104,5 @@ class RecommendationFeedbackHandler(MessageHandler):
                 logger.info(f"Consultant feedback recorded for requestid: {header.get('requestId')}")
             except Exception as e:
                 logger.error(f"Failed to process consultant feedback: {e}", exc_info=True)
-                self.send_notification(header,UnExpectedError(e))
+                self.send_notification(header,UnExpectedError(e).to_dict())
 

@@ -42,7 +42,7 @@ class Consultant_Recommendation(MessageHandler):
     
     def send_failure(self, reqheader: Dict, payload: Dict, project_id : str,stage : str,  eventSubType:str ="PROCESSING_ERROR"):
         context = reqheader.copy()
-        context['error_text'] = payload.get('error_message')
+        context['error_text'] = payload.get('internal_message')
         notify_failures(context,f'Consult Flow|{stage}|{payload.get('error_code')}')
         
         response_headers = {
@@ -95,14 +95,21 @@ class Consultant_Recommendation(MessageHandler):
         # pass
 
     async def get_latest_sow_request(self, request_id: str):
-        for attempt in range(1,6):
-            await asyncio.sleep(5*attempt)
-            if self._check_all_messages_received(request_id):
-                break
-            if attempt == 5:
-                raise DatabaseReadError(error=f"No messages received for requestid: {request_id}")
-            
-            logger.info(f'{request_id} - Waiting 5 secs for SOW messages Attempt: {attempt}')
+        
+        try:
+            for attempt in range(1,6):
+                await asyncio.sleep(5*attempt)
+                if self._check_all_messages_received(request_id):
+                    break
+                if attempt == 5:
+                    raise DatabaseReadError(error=f"No messages received for requestid: {request_id}")
+                
+                logger.info(f'{request_id} - Waiting {5*attempt} secs for SOW messages Attempt: {attempt}')
+                    
+        except DatabaseReadError as db_err:
+            logger.error(f'DatabaseReadError in get_latest_sow_request: {db_err}', exc_info=True)
+            raise db_err
+        
         try:
             db = DatabaseManager(cfg.DEBUG)
             qry = querytext(f"""select event_type,

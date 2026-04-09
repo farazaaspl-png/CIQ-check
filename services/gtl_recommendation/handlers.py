@@ -36,7 +36,7 @@ class Gtl_Recommendation(MessageHandler):
     
     def send_failure(self, reqheader: str, payload: Dict,eventSubType:str ="PROCESSING_ERROR") -> None:
         context = reqheader.copy()
-        context['error_text'] = payload.get('error_message')
+        context['error_text'] = payload.get('internal_message')
         notify_failures(context,f'GTL Flow|{payload.get('error_code')}|{payload.get('requestUuid')}')
 
         failure_headers = {
