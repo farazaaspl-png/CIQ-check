@@ -133,7 +133,8 @@ REQUIRED_KEYS = {
     "ORACLE_USER",
     "ORACLE_PASSWORD",
     "SVC_ACCOUNT_EMAIL",
-    "SVC_ACCOUNT_PASSWORD_EMAIL"
+    "SVC_ACCOUNT_PASSWORD_EMAIL",
+    "LIBREOFFICE_PATH"
 }
 
 def download_env_from_s3(client: str, env: str, local_path: str = "./downloaded.env") -> dict:

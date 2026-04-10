@@ -176,6 +176,20 @@ class Dispatcher:
         
         
     def getRedactors(self,outdir):
+        # Convert legacy formats to modern equivalents before routing
+        if self.filepath.suffix.lower() == '.doc':
+            if not self.filepath.with_suffix('.docx').exists():
+                self._convert_doc_to_docx_libreoffice()
+            self.filepath = self.filepath.with_suffix('.docx')
+        elif self.filepath.suffix.lower() == '.ppt':
+            if not self.filepath.with_suffix('.pptx').exists():
+                self._convert_ppt_to_pptx_libreoffice()
+            self.filepath = self.filepath.with_suffix('.pptx')
+        elif self.filepath.suffix.lower() == '.xls':
+            if not self.filepath.with_suffix('.xlsx').exists():
+                self._convert_xls_to_xlsx_libreoffice()
+            self.filepath = self.filepath.with_suffix('.xlsx')
+
         self.outfilepath = Path(os.path.join(outdir,self.filepath.name))
         """Read content from different file types"""
         try:

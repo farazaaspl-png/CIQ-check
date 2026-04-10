@@ -35,8 +35,8 @@ class RecommendationFeedbackHandler(MessageHandler):
     
     def send_notification(self,header, exp):
         context = header.copy()
-        context['error_text'] = exp.internal_message
-        notify_failures(context,f'GTL Feedback|{exp.error_code}')
+        context['error_text'] = exp['internal_message']
+        notify_failures(context,f'GTL Feedback|{exp['error_code']}')
         
     # def send_failure(self, requestUuid: str, payload: Dict, eventSubType:str ="PROCESSING_ERROR",project_id:str = "",requestId:str = ""):
     #     response_headers = {
@@ -87,7 +87,7 @@ class RecommendationFeedbackHandler(MessageHandler):
                 # self.send_failure(request_uuid, exc.to_dict(),requestId = request_id)
             except Exception as exc:
                 logger.error(f"{exc}", exc_info=True)
-                self.send_notification(header, exc)
+                self.send_notification(header, UnExpectedError(exc).to_dict())
 
         elif header.get("eventSubType") == "FEEDBACK": 
        

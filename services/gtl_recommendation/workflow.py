@@ -308,12 +308,17 @@ class SensitiveItemsExtStage(WorkflowStage):
                         '.pptx':self.cfg.REDACTION_THRESHOLD_PPTX,
                         'others':self.cfg.REDACTION_THRESHOLD_OTHERS}
 
+        # Normalize legacy extensions to modern equivalents for threshold lookup
+        legacy_to_modern = {'.doc': '.docx', '.ppt': '.pptx', '.xls': '.xlsx'}
+        effective_suffix = legacy_to_modern.get(filepath.suffix.lower(), filepath.suffix.lower())
+
         self.get_dir_local(fuuid, Path(input_file).parent)
 
         json_files = list(Path(input_file).parent.rglob("*.json"))
 
         filecontent = self.get_file_content(fuuid, input_file)
-        threshold = threshold_dict[filepath.suffix.lower()] if filepath.suffix.lower() in ('.docx','.xlsx','.pptx') else threshold_dict['others']
+        threshold = threshold_dict[effective_suffix] if effective_suffix in ('.docx','.xlsx','.pptx') else threshold_dict['others']
+        effective_filepath = filepath.with_suffix(effective_suffix) if effective_suffix != filepath.suffix.lower() else filepath
         extractor = TextExtractor(requestid = requestid,
                                   fuuid = fuuid,
                                   dafileid = dafileid,
@@ -321,7 +326,7 @@ class SensitiveItemsExtStage(WorkflowStage):
                                   correlationid = self.cfg.CORR_ID_REDACTION, 
                                   debug = self.cfg.DEBUG, 
                                   threshold = threshold,
-                                  filepath = filepath,
+                                  filepath = effective_filepath,
                                   json_files = json_files)
         
         isfound, sensitive_items = extractor.extract_sensitive_info()
@@ -400,7 +405,9 @@ class RedactionStage(WorkflowStage):
         # isTextRedacted, totalRedacted = textRedactor.sanitize(sensitiveInfoList = sensitive_items, **context.state)
         isTextRedacted, totalRedacted = textRedactor.sanitize(**context.state)
 
-        out_filepath, redacted_items_filepath = textRedactor.save(outdir=os.path.join(request_dir, self.name),filename = context.state.get('redacted_filename',filepath.name))
+        # Use dispatcher.filepath.name to get the converted filename (e.g. .pptx instead of .ppt)
+        redacted_filename = context.state.get('redacted_filename', dispatcher.filepath.name)
+        out_filepath, redacted_items_filepath = textRedactor.save(outdir=os.path.join(request_dir, self.name),filename = redacted_filename)
         self.s3.upload(out_filepath, overwrite = True)
         
         context.state['out_filepath'] = out_filepath

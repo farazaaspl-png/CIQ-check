@@ -46,8 +46,8 @@ class GTLFeedbackHandler(MessageHandler):
 
     def send_notification(self,header, exp):
         context = header.copy()
-        context['error_text'] = exp.internal_message
-        notify_failures(context,f'GTL Feedback|{exp.error_code}') 
+        context['error_text'] = exp['internal_message']
+        notify_failures(context,f'GTL Feedback|{exp['error_code']}') 
 
     def handle(self, header: Dict, payload: Dict) -> None:
         logger.info("Feedback proces started")
