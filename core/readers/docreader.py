@@ -441,7 +441,7 @@ class DocumentExtractor:
                 except Exception as e:
                     logger.warning(f"{self.fileid}-->Error extracting text from image {name}: {e}",exc_info=True)
 
-    def extract_content(self,headerfooter=False,notes=False,indexes=False,comments=False):
+    def extract_content(self,headerfooter=True,notes=False,indexes=False,comments=False):
         
         logger.info(f"{self.fileid}-->Started extracting content from {self.filepath}")
         with zipfile.ZipFile(self.filepath, 'r') as docZip:

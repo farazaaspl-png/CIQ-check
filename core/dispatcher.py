@@ -27,6 +27,17 @@ from services.gtl_recommendation.redaction.text.RedactorExcel import ExcelRedact
 from services.gtl_recommendation.redaction.image.RedactorDoc import DocRedactor as ImageDocRedactor
 from services.gtl_recommendation.redaction.image.Redactorxlsx import ExcelRedactor as ImageExcelRedactor
 from services.gtl_recommendation.redaction.image.RedactorPptx import PPTXRedactor as ImagePptxRedactor
+# from services.gtl_recommendation.grading.spell_check_prompts import build_docx_spellcheck_prompt, build_xlsx_spellcheck_prompt, build_pptx_spellcheck_prompt
+from services.gtl_recommendation.grading import spell_check_prompts as scp
+from services.gtl_recommendation.grading import content_check_prompts as ccp
+
+# from services.gtl_recommendation.grading.Spellchecker.DocSpellchecker import DocSpellchecker
+# from services.gtl_recommendation.grading.Contentchecker.doc_content_check import DocContentChecker
+# from services.gtl_recommendation.grading.Spellchecker.ExcelSpellchecker import ExcelSpellchecker
+# from services.gtl_recommendation.grading.Contentchecker.excel_content_check import ExcelContentChecker
+# from services.gtl_recommendation.grading.Spellchecker.PPTSpellchecker import PptxSpellchecker
+# from services.gtl_recommendation.grading.Contentchecker.ppt_content_check import PptxContentChecker
+         
 from config import Configuration
 from core.s3_helper import StorageManager
 from core.utility import get_custom_logger #,remove_control_chars
@@ -176,20 +187,6 @@ class Dispatcher:
         
         
     def getRedactors(self,outdir):
-        # Convert legacy formats to modern equivalents before routing
-        if self.filepath.suffix.lower() == '.doc':
-            if not self.filepath.with_suffix('.docx').exists():
-                self._convert_doc_to_docx_libreoffice()
-            self.filepath = self.filepath.with_suffix('.docx')
-        elif self.filepath.suffix.lower() == '.ppt':
-            if not self.filepath.with_suffix('.pptx').exists():
-                self._convert_ppt_to_pptx_libreoffice()
-            self.filepath = self.filepath.with_suffix('.pptx')
-        elif self.filepath.suffix.lower() == '.xls':
-            if not self.filepath.with_suffix('.xlsx').exists():
-                self._convert_xls_to_xlsx_libreoffice()
-            self.filepath = self.filepath.with_suffix('.xlsx')
-
         self.outfilepath = Path(os.path.join(outdir,self.filepath.name))
         """Read content from different file types"""
         try:
@@ -412,6 +409,85 @@ class Dispatcher:
                 good_pages.append(i)
         doc.close()
         return good_pages
+    
+    def getSpellCheckerPromptBuilder(self):
+        """Get spellchecker prompt builder based on file format"""
+        try:
+            file_extension = self.filepath.suffix.lower()
+            
+            # ---------- DOCX ----------
+            if file_extension == '.docx':
+                return scp.build_docx_spellcheck_prompt
+            # ---------- EXCEL ----------
+            elif file_extension == '.xlsx':
+                return scp.build_xlsx_spellcheck_prompt
+            # ---------- PPTX ----------
+            elif file_extension == '.pptx':
+                return scp.build_pptx_spellcheck_prompt
+            # ---------- Not supported ----------
+            else:
+                raise FileFormatNotSupported(fileformat=self.filepath.suffix)
+        except CustomBaseException as e:
+            raise e
+        except Exception as e:
+            logger.error(f"Error in getSpellcheckerPrompt: {e}",exc_info=True)
+            raise UnExpectedError(error = e)
+        
+    def getContentCheckerPromptBuilder(self):
+        """Get contentchecker prompt builder based on file format"""
+        try:
+            file_extension = self.filepath.suffix.lower()
+            
+            # ---------- DOCX ----------
+            if file_extension == '.docx':
+                return ccp.build_doc_contentcheck_prompt
+            # ---------- EXCEL ----------
+            elif file_extension == '.xlsx':
+                return ccp.build_xls_contentcheck_prompt
+            # ---------- PPTX ----------
+            elif file_extension == '.pptx':
+                return ccp.build_ppt_contentcheck_prompt
+            # ---------- Not supported ----------
+            else:
+                raise FileFormatNotSupported(fileformat=self.filepath.suffix)
+        except CustomBaseException as e:
+            raise e
+        except Exception as e:
+            logger.error(f"Error in getSpellcheckerPrompt: {e}",exc_info=True)
+            raise UnExpectedError(error = e)
+    
+    # def getGraders(self):
+    #     """Get appropriate graders based on file format"""
+    #     try:
+    #         file_extension = self.filepath.suffix.lower()
+            
+    #         # ---------- DOCX ----------
+    #         if file_extension == '.docx':
+    #             spellchecker = DocSpellchecker(filepath = self.filepath, dafileid=self.dafileid, debug = self.debug)
+    #             contentchecker = DocContentChecker(filepath = self.filepath, dafileid=self.dafileid, debug = self.debug)
+    #             return spellchecker, contentchecker
+    #         # ---------- EXCEL ----------
+    #         # for now just filepath is passed will be changed in future
+    #         elif file_extension == '.xlsx':
+    #             spellchecker = ExcelSpellchecker(filepath = self.filepath, dafileid=self.dafileid, debug = self.debug)
+    #             contentchecker = ExcelContentChecker(filepath = self.filepath, dafileid=self.dafileid, debug = self.debug)
+    #             return spellchecker, contentchecker
+    #         # ---------- PPTX ----------
+    #         # for now just filepath is passed will be changed in future
+    #         elif file_extension == '.pptx':
+    #             spellchecker = PptxSpellchecker(filepath = self.filepath, dafileid=self.dafileid, debug = self.debug)
+    #             contentchecker = PptxContentChecker(filepath = self.filepath, dafileid=self.dafileid, debug = self.debug)
+    #             return spellchecker, contentchecker
+    #         # ---------- Not supported ----------
+    #         else:
+    #             logger.warning(f"Unsupported file format for grading: {file_extension}")
+    #              # ---------- FALLBACK ----------
+    #             raise FileFormatNotSupported(fileformat=self.filepath.suffix)
+    #     except CustomBaseException as e:
+    #         raise e
+    #     except Exception as e:
+    #         logger.error(f"Error in getGraders: {e}",exc_info=True)
+    #         raise UnExpectedError(error = e)
         
     def _convert_pdf_to_docx(self, filepath: Path=None) -> Path:
         if filepath is None:

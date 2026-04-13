@@ -2,7 +2,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {APP_NAME}-constants-fssit
+  name: {APP_NAME}-constants-fssit-batch
   namespace: {KUBE_KOB_NAMESPACE}
 data:
   API_NAME: {APP_NAME}
@@ -10,12 +10,27 @@ data:
   ENVIRONMENT: {APP_ENV}
   DATACENTER: {ENV_DATACENTER}
   KOB_NAMESPACE: {KUBE_KOB_NAMESPACE}
+  TYPE: 'BATCH'
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {APP_NAME}-constants-fssit-fast
+  namespace: {KUBE_KOB_NAMESPACE}
+data:
+  API_NAME: {APP_NAME}
+  API_VERSION: {APP_VERSION}
+  ENVIRONMENT: {APP_ENV}
+  DATACENTER: {ENV_DATACENTER}
+  KOB_NAMESPACE: {KUBE_KOB_NAMESPACE}
+  TYPE: 'FAST'
 
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {APP_NAME}-deployment-green-fssit
+  name: {APP_NAME}-deployment-green-fssit-batch
   namespace: {KUBE_KOB_NAMESPACE}
   labels:
     app: {APP_NAME}
@@ -26,6 +41,7 @@ spec:
     matchLabels:
       app: {APP_NAME}
       version: 'green'
+      variant: 'batch'
   template:
     metadata:
       annotations:
@@ -33,6 +49,7 @@ spec:
       labels:
         app: {APP_NAME}
         version: 'green'
+        variant: 'batch'
     spec:
       terminationGracePeriodSeconds: 0
       containers:
@@ -50,11 +67,11 @@ spec:
           imagePullPolicy: Always
           resources:
             requests:
-              memory: "16Gi"
-              cpu: "4"
+              memory: "8Gi"
+              cpu: "1"
             limits:
-              memory: "16Gi"
-              cpu: "4"
+              memory: "8Gi"
+              cpu: "1"
           env:
           - name: MAX_WORKERS
             value: "1"
@@ -66,16 +83,78 @@ spec:
             value: "true"
           ports:
             - containerPort: 8080
-          # livenessProbe:
-          #   httpGet:
-          #     path: /api/v0/health
-          #     port: 8080
-          #   initialDelaySeconds: 300
-          #   periodSeconds: 30
-          #   timeoutSeconds: 10
           envFrom:
             - configMapRef:
-                name: {APP_NAME}-constants-fssit
+                name: {APP_NAME}-constants-fssit-batch
+      securityContext:
+        sysctls:
+            - name: net.ipv4.ip_unprivileged_port_start
+              value: "80"
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {APP_NAME}-deployment-green-fssit-fast
+  namespace: {KUBE_KOB_NAMESPACE}
+  labels:
+    app: {APP_NAME}
+    version: 'green'
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {APP_NAME}
+      version: 'green'
+      variant: 'fast'
+  template:
+    metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+      labels:
+        app: {APP_NAME}
+        version: 'green'
+        variant: 'fast'
+    spec:
+      terminationGracePeriodSeconds: 0
+      containers:
+        - name: {APP_NAME}
+          image: harbor.dell.com/gpe-ds/ip-content-management:{BUILD_VERSION}
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1001
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop:
+                - ALL
+          imagePullPolicy: Always
+          resources:
+            requests:
+              memory: "8Gi"
+              cpu: "1"
+            limits:
+              memory: "8Gi"
+              cpu: "1"
+          env:
+          - name: MAX_WORKERS
+            value: "1"
+          - name: AUTOWRAPT_BOOTSTRAP
+            value: autodynatrace
+          - name: AUTODYNATRACE_APPLICATION_ID
+            value: ip_content_management
+          - name: AUTODYNATRACE_FORKABLE
+            value: "true"
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: {APP_NAME}-constants-fssit-fast
       securityContext:
         sysctls:
             - name: net.ipv4.ip_unprivileged_port_start
@@ -89,13 +168,13 @@ spec:
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: {APP_NAME}-autoscaler-green-fssit
+  name: {APP_NAME}-autoscaler-green-fssit-batch
   namespace: {KUBE_KOB_NAMESPACE}
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: {APP_NAME}-deployment-green-fssit
+    name: {APP_NAME}-deployment-green-fssit-batch
   minReplicas: 1
   maxReplicas: 3
   metrics:
@@ -107,25 +186,22 @@ spec:
           averageUtilization: 90
 
 ---
-apiVersion: k8s.nginx.org/v1
-kind: VirtualServer
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
 metadata:
-  name: {APP_NAME}-server-fssit
+  name: {APP_NAME}-autoscaler-green-fssit-fast
   namespace: {KUBE_KOB_NAMESPACE}
 spec:
-  host: {APP_NAME}.dev-a1-np.kob.dell.com
-  ingressClassName: {INGRESS_CLASS_NAME}
-  tls:
-    redirect:
-      enable: true
-  upstreams:
-    - name: {APP_NAME}-service-fssit
-      service: {APP_NAME}-service-fssit
-      port: 80
-      lb-method: round_robin
-  routes:
-    - path: /
-      action:
-        pass: {APP_NAME}-service-fssit
-  server-snippets: |
-    underscores_in_headers on;
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {APP_NAME}-deployment-green-fssit-fast
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 90

@@ -9,6 +9,8 @@ from core.dispatcher import Dispatcher,SUPPORTED_FILES
 from core.emailNotification import notify_failures, notify_feedbacks
 from core.exceptions import UnExpectedError
 from core.s3_helper import StorageManager
+# from core.vectorizer_old import VectorInterface
+from core.embedding.vectorizer import VectorInterface
 from kafka_framework.consumer import MessageHandler
 from kafka_framework.producer import KafkaMessageProducer
 
@@ -40,7 +42,7 @@ class GTLFeedbackHandler(MessageHandler):
         self.debug = debug
         if self.debug:
             logger.setLevel(logging.DEBUG)
-    
+        self.vector = VectorInterface(table_name=cfg.DOCUMENT_CONTENT_STORE)
     def get_message_types(self) -> List[str]:
         return ['IP_RECOMMENDATION_UPDATE','IP_RECOMMENDATION_DELETE','IP_RECOMMENDATION_FEEDBACK']
 
@@ -121,6 +123,7 @@ class GTLFeedbackHandler(MessageHandler):
                 #         'feedback': payload.get('reprocessCommand')
                 #         }   
                 #     db.insert_feedback(**feedback)
+
                 if eventSubType == 'SEND_FEEDBACK':
                     feedback = {
                         'fuuid': payload.get('uuid'),
@@ -194,7 +197,7 @@ class GTLFeedbackHandler(MessageHandler):
                     if payload.get('oldDaFileId') is not None:
                         df = db.get_vwclassificationout_row(
                             fuuid   = fuuid,
-                            dafileid= dafileid
+                            dafileid= payload.get('newDaFileId')
                         )
                         uuid_columns = ['requestid', 'fuuid', 'daoriginal_fileid', 'dafileid', 'dasanitizationoutfileid']
                         df[uuid_columns] = df[uuid_columns].fillna('').astype(str)
@@ -218,7 +221,7 @@ class GTLFeedbackHandler(MessageHandler):
 
                 except Exception as e:
                     logger.error(f"Failed to process FILE_INFO_UPDATE: {e}", exc_info=True)
-                    self.send_notification(header,UnExpectedError(e).to_dict())
+                    self.send_notification(header,UnExpectedError(e))
                 # finally:
                 #     if 'db' in locals(): del db
             elif eventSubType == 'MIGRATION_APPROVE':

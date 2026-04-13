@@ -195,6 +195,7 @@ nest-asyncio==1.6.0
     # via
     #   -r requirements.in
     #   aia-auth-client
+# numpy==1.26.4
 numpy>=2.0.0
     # via
     #   -r requirements.in

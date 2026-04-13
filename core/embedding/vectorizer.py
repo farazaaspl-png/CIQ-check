@@ -105,8 +105,10 @@ class VectorInterface:
         logger.info(f"{requestids} - Vectorization completed")
 
     def vectorize_documents_by_dafileids(self, dafileids: List[str]):
-        if self.table_name != cfg.DOCUMENT_METASTORE_NAME:
-            raise ValueError(f'Invalid collection name. Function is only applicable for collection "{cfg.COLLECTIONNAME}".')
+        #KH: changed table name
+        # if self.table_name != cfg.DOCUMENT_METASTORE_NAME:
+        if self.table_name != cfg.DOCUMENT_CONTENT_STORE:
+            raise ValueError(f'Invalid collection name. Function is only applicable for collection "{cfg.DOCUMENT_CONTENT_STORE}".')
         logger.info(f"Vectorizing documents for dafileids: {dafileids}")
             
         existingdafileids = self.vdb.get_existing_dafileids(self.table_name,dafileids)

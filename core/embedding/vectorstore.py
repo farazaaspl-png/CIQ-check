@@ -1,3 +1,4 @@
+#vectorstore.py
 import logging
 
 
@@ -176,3 +177,65 @@ class CustomPgvectorStore:
         
     #     logger.info(f"FUUID chunk counts: {df_counts.to_dict('records')}")
     #     return df_counts.set_index('fuuid')['total_chunks']
+
+
+    # def get_chunks_by_keys(self, key_pairs: list[tuple]) -> dict:
+    #     """
+    #     Fetch content by (dafileid, chunk_idx) pairs from pgvector table.
+        
+    #     Args:
+    #         key_pairs: [(dafileid_str, chunk_idx_str|int), ...]
+        
+    #     Returns:
+    #         {(dafileid, chunk_idx): content_str, ...}  # Missing keys return None
+    #     """
+        
+    #     if not key_pairs:
+    #         logger.warning("Empty key_pairs")
+    #         return {}
+        
+    #     # Build parameterized WHERE clause
+    #     conditions = []
+    #     params = {}
+    #     for i, (daf, idx) in enumerate(key_pairs):
+    #         key = f"k{i}"
+    #         conditions.append(
+    #             f"(cmetadata->>'dafileid' = :daf_{key} AND (cmetadata->>'chunk_idx')::int = :idx_{key})"
+    #         )
+    #         params[f"daf_{key}"] = str(daf)  # Ensure string
+    #         params[f"idx_{key}"] = int(idx)   # Ensure int
+        
+    #     where_clause = " OR ".join(conditions)
+        
+    #     sql = text(f"""
+    #         SELECT 
+    #             cmetadata->>'dafileid' as dafileid,
+    #             cmetadata->>'chunk_idx' as chunk_idx,
+    #             content
+    #         FROM {self.table_name} 
+    #         WHERE {where_clause}
+    #     """)
+        
+    #     try:
+    #         with self.vecdb.engine.connect() as conn:
+    #             result = conn.execute(sql, params)
+    #             rows = result.mappings().all()
+            
+    #         content_map = {
+    #             (row['dafileid'], int(row['chunk_idx'])): row['content']
+    #             for row in rows
+    #         }
+            
+    #         found = len(content_map)
+    #         requested = len(key_pairs)
+    #         logger.info(f"Fetched {found}/{requested} chunks by key")
+            
+    #         # if found < requested:
+    #         #     missing = set(key_pairs) - set(content_map.keys())
+    #         #     logger.warning(f"Missing {len(missing)} chunks: {list(missing)[:3]}...")
+    #         logger.info(f"found length of chunk_idx, dafileid : content  ->  {found}")
+    #         return content_map
+            
+    #     except Exception as e:
+    #         logger.error(f"Chunk fetch failed: {e}")
+    #         return {}

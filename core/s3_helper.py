@@ -4,7 +4,7 @@ from pathlib import Path
 from config import Configuration
 from botocore.exceptions import ClientError
 from botocore.config import Config
-
+import shutil
 from core.utility import get_custom_logger
 logger = get_custom_logger(__name__)
 
@@ -282,5 +282,13 @@ class StorageManager:
     
                     self.upload_file(local_path, object_key, overwrite=True, delete_after_upload=delete_after_upload)
             print(f"✅ All files from '{folder_path}' uploaded successfully.")
+            
+            if delete_after_upload:
+                # Delete empty folders after files have been removed
+                for item in os.listdir(folder_path):
+                    item_path = os.path.join(folder_path, item)
+                    if os.path.isdir(item_path):
+                        shutil.rmtree(item_path, ignore_errors=True)
+                print(f"Deleted folder: {folder_path}")
         except Exception as e:
             print(f"❌ Error uploading folder: {e}")

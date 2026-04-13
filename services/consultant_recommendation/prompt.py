@@ -78,7 +78,7 @@ Return ONLY a JSON array of objects in this format:
   {{
 "Customer Name": "Name of customer or company",
 "Objective": "What is the project trying to achieve? (2-5 sentences)",
-"Scope of Work": "List of 1 line sentences (of explaination)for all services covered in Scope of Work. (| separated)",
+"Scope of Work": "List of 1 line sentences (of explaination) for all services covered in Scope of Work. (| separated)",
 "Deliverables": "List tangible outputs (like documents, reports, systems, integrations, prototypes, development, infrastructure provisioning etc) (| separated)",
 "Language": "Actual LANGUAGE of the STATEMENT OF WORK",
 "Offer": ["OfferName":"Name of offer provided", "Relevance Score": "relevance score of the offer","Reason": "Reason for the offer selection"] }}

@@ -243,11 +243,7 @@ class Classifier:
             }
         if not any([doc_metadata['filename']==redacted_item['filename'], doc_metadata['title']==redacted_item['title'],doc_metadata['description']==redacted_item['description']]):
             regeneratedmetadata = self.regenerate_metadata(redacted_item)
-            _legacy_to_modern = {'.ppt': '.pptx', '.doc': '.docx', '.xls': '.xlsx'}
-            _regen_name = regeneratedmetadata['filename']
-            _regen_ext = Path(_regen_name).suffix.lower()
-            _regen_name = Path(_regen_name).stem + _legacy_to_modern.get(_regen_ext, _regen_ext)
-            self.finalOutput['filename'] = _regen_name
+            self.finalOutput['filename'] = regeneratedmetadata['filename']
             self.finalOutput['title']= regeneratedmetadata['title']
             self.finalOutput['description'] = regeneratedmetadata['description']
             logger.info(f"Redacted metedata for classification output for fileid : {self.dafileid}")

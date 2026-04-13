@@ -14,6 +14,7 @@ from pythonjsonlogger import jsonlogger
 import chardet
 from config import Config as cfg
 import contextvars
+from core.log_helper import add_session_file_handler
 
 logging.getLogger('transformers').setLevel(logging.ERROR)
 
@@ -219,6 +220,7 @@ def get_custom_logger(name):
 
         handler.setFormatter(formatter)
         logger.addFilter(ContextFilter())
+        add_session_file_handler(logger)
 
         logger.addHandler(handler)
         logger.propagate = False

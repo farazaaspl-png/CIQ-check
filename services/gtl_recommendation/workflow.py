@@ -10,7 +10,6 @@ from zipfile import BadZipFile
 import pendulum
 import json
 
-
 from config import Configuration
 from core.db.crud import DatabaseManager
 from core.dellattachments import DellAttachments
@@ -21,6 +20,9 @@ from core.utility import get_custom_logger #,remove_control_chars
 from services.gtl_recommendation.classification.classification import Classifier
 from services.gtl_recommendation.conversion.converter import FileConverter
 from services.gtl_recommendation.sensitive_text_ext.extractor import TextExtractor
+from services.gtl_recommendation.similarity.template_identifier import DocumentIdentifier
+from services.gtl_recommendation.similarity.Content_similarity import ContentSimilarity
+from services.gtl_recommendation.grading.grading import ContentGrader
 
 logger = get_custom_logger(__name__)
 
@@ -63,7 +65,7 @@ class WorkflowStage(ABC):
         return context.enabled_stages.get(self.stageno, True)
     
     def send_updates_to_db(self,context:GlobalContext, doc_upd_params={}, state_upd_params={}):
-        stgno = self.stageno if self.stageno<context.state['stage_cnt'] else self.stageno - (7-context.state['stage_cnt'])
+        stgno = self.stageno if self.stageno<context.state['stage_cnt'] else self.stageno - (9-context.state['stage_cnt'])
         status = f'Stage {stgno}/{context.state["stage_cnt"]}: {self.name}'
         doc_upd_params['status'] = status
         state_upd_params['status'] = status
@@ -279,6 +281,85 @@ class ExtractFileContentsStage(WorkflowStage):
             logger.error(f"{fuuid}-Error processing file | file: {filepath} - {e}", exc_info=True)
             raise UnExpectedError(e)
 
+class SimilarityStage(WorkflowStage):
+ 
+    @property
+    def name(self) -> str:
+        return "Similarity Scoring"
+ 
+    @property
+    def stageno(self) -> str:
+        return 4
+ 
+    def execute(self, context: GlobalContext):
+        dafileid  = context.state['dafileid']
+        fuuid     = context.state['fuuid']
+        requestid = context.state['requestid']
+        filepath = context.state['filepath']
+        input_file = context.state['extraction_input_file']
+ 
+        if not self.should_execute(context):
+            logger.info(f"{fuuid}-[SKIP] {self.name}")
+            return
+
+        # Step-1 Document Identification
+        filecontent = self.get_file_content(fuuid, input_file)
+        idf = DocumentIdentifier(filecontent, debug=self.cfg.DEBUG, **context.header, **context.payload)
+        identification_out = idf._search_and_rank_files()
+        
+        if not identification_out:
+            logger.info(f"{fuuid}-[SKIP] {self.name}")            
+            self.db.update_gtl_synopsis(where_clause = {'requestid': requestid,'fuuid': fuuid,
+                            'daoriginal_fileid': dafileid,},update_message ={"Similarity Summary": ("No template found for this file")})
+            self.send_updates_to_db(context)
+            return
+            
+        template_dafileid = identification_out.get('dafileid')
+        template_filename = identification_out.get('filename')
+ 
+        logger.info(f"{fuuid}- Template identified: dafileid={template_dafileid} | filename={template_filename}")
+ 
+        # context.state['template_dafileid'] = template_dafileid
+        # context.state['template_filename'] = template_filename
+ 
+        template_payload = {
+            "filename":template_filename,
+            "templatedaFileId":template_dafileid}
+        
+        template_path = (Path(self.cfg.DATA_DIR) / self.cfg.GTL_FLOW_DIR / str(self.template_dafileid) / self.template_filename)
+
+        # Step-2 Similarity and Description
+        content_sim = ContentSimilarity(textContent=filecontent, debug=self.cfg.DEBUG, **context.payload,**template_payload)
+        content_sim_out= content_sim.similarity_and_description(template_path)
+       
+        if not content_sim_out:
+            logger.info(f"{fuuid}-[SKIP] {self.name}")
+            self.send_updates_to_db(context)
+            return
+
+        similarity_score  = content_sim_out[0]
+        description = content_sim_out[1]
+ 
+        logger.info(f"{fuuid}- Similarity done: avg_fuzz={similarity_score:.2f}")
+ 
+        
+        # context.state['similarity_score']       = similarity_score
+        # context.state['similarity_description'] = description
+        
+        #message for updating gtl_synopsis
+        if similarity_score and description:
+            message = {"Similarity Summary": (
+                    f"This file {filepath.name} is similar to "
+                    f"{template_filename} | "
+                    f"Similarity Score: {similarity_score:.2f}% | "
+                    f"Description: {description}"
+                )}
+        self.db.update_gtl_synopsis(where_clause = {'requestid': requestid,'fuuid': fuuid,
+                                    'daoriginal_fileid': dafileid,},update_message =message)
+        self.send_updates_to_db(context,
+            doc_upd_params={'similarity': similarity_score,'mathcingdafileid':template_dafileid})
+            # state_upd_params={'similarity': similarity_score})
+
 class SensitiveItemsExtStage(WorkflowStage):
 
     @property
@@ -287,7 +368,7 @@ class SensitiveItemsExtStage(WorkflowStage):
     
     @property
     def stageno(self) -> str:
-        return 4
+        return 5
 
     def execute(self, context: GlobalContext):
         requestid = context.state['requestid']
@@ -308,17 +389,12 @@ class SensitiveItemsExtStage(WorkflowStage):
                         '.pptx':self.cfg.REDACTION_THRESHOLD_PPTX,
                         'others':self.cfg.REDACTION_THRESHOLD_OTHERS}
 
-        # Normalize legacy extensions to modern equivalents for threshold lookup
-        legacy_to_modern = {'.doc': '.docx', '.ppt': '.pptx', '.xls': '.xlsx'}
-        effective_suffix = legacy_to_modern.get(filepath.suffix.lower(), filepath.suffix.lower())
-
         self.get_dir_local(fuuid, Path(input_file).parent)
 
         json_files = list(Path(input_file).parent.rglob("*.json"))
 
         filecontent = self.get_file_content(fuuid, input_file)
-        threshold = threshold_dict[effective_suffix] if effective_suffix in ('.docx','.xlsx','.pptx') else threshold_dict['others']
-        effective_filepath = filepath.with_suffix(effective_suffix) if effective_suffix != filepath.suffix.lower() else filepath
+        threshold = threshold_dict[filepath.suffix.lower()] if filepath.suffix.lower() in ('.docx','.xlsx','.pptx') else threshold_dict['others']
         extractor = TextExtractor(requestid = requestid,
                                   fuuid = fuuid,
                                   dafileid = dafileid,
@@ -326,7 +402,7 @@ class SensitiveItemsExtStage(WorkflowStage):
                                   correlationid = self.cfg.CORR_ID_REDACTION, 
                                   debug = self.cfg.DEBUG, 
                                   threshold = threshold,
-                                  filepath = effective_filepath,
+                                  filepath = filepath,
                                   json_files = json_files)
         
         isfound, sensitive_items = extractor.extract_sensitive_info()
@@ -337,9 +413,9 @@ class SensitiveItemsExtStage(WorkflowStage):
         self.send_updates_to_db(context, state_upd_params={'has_sensitive_items': context.state['has_sensitive_items']})
         
         if not isfound:
-            context.enabled_stages[6] =  False
+            context.enabled_stages[7] =  False
             if not context.state.get('waspdf',False):
-                context.enabled_stages[7] =  False
+                context.enabled_stages[8] =  False
 
 
 class ClassifyStage(WorkflowStage):
@@ -350,7 +426,7 @@ class ClassifyStage(WorkflowStage):
 
     @property
     def stageno(self) -> str:
-        return 5
+        return 6
 
     def execute(self, context: GlobalContext):
         # requestId = context.state['requestid']
@@ -381,7 +457,7 @@ class RedactionStage(WorkflowStage):
     
     @property
     def stageno(self) -> str:
-        return 6
+        return 7
 
     def execute(self, context: GlobalContext):        
         dafileid = context.state['dafileid']
@@ -405,9 +481,7 @@ class RedactionStage(WorkflowStage):
         # isTextRedacted, totalRedacted = textRedactor.sanitize(sensitiveInfoList = sensitive_items, **context.state)
         isTextRedacted, totalRedacted = textRedactor.sanitize(**context.state)
 
-        # Use dispatcher.filepath.name to get the converted filename (e.g. .pptx instead of .ppt)
-        redacted_filename = context.state.get('redacted_filename', dispatcher.filepath.name)
-        out_filepath, redacted_items_filepath = textRedactor.save(outdir=os.path.join(request_dir, self.name),filename = redacted_filename)
+        out_filepath, redacted_items_filepath = textRedactor.save(outdir=os.path.join(request_dir, self.name),filename = context.state.get('redacted_filename',filepath.name))
         self.s3.upload(out_filepath, overwrite = True)
         
         context.state['out_filepath'] = out_filepath
@@ -427,8 +501,10 @@ class RedactionStage(WorkflowStage):
             self.s3.upload(out_filepath, overwrite = True)
 
         logger.info(f"Updating gtl_synopsis")
-        self.db.update_gtl_synopsis(requestid=requestid,fuuid=fuuid,daoriginal_fileid=dafileid,totalRedacted=totalRedacted)
-
+        message = {"Redaction Summary": ("There are no sensitive items found in this file."
+            if totalRedacted == 0 else f"{totalRedacted} sensitive item's got redacted for this file.")}
+        self.db.update_gtl_synopsis(where_clause = {'requestid': requestid,'fuuid': fuuid,
+                                    'daoriginal_fileid': dafileid,},update_message =message)
         self.send_updates_to_db(context,
                                 state_upd_params={'istextredacted': context.state['istextredacted'],
                                                   'isimageredacted': context.state['isimageredacted'],
@@ -443,7 +519,7 @@ class UploadOutputs(WorkflowStage):
     
     @property
     def stageno(self) -> str:
-        return 7
+        return 8
 
     def execute(self, context: GlobalContext): 
         # requestId = context.state['requestid']
@@ -483,6 +559,61 @@ class UploadOutputs(WorkflowStage):
                                 state_upd_params={'redacted_items_dafileid': context.state.get('redacted_items_dafileid'),
                                                   'out_dafileid': context.state.get('out_dafileid')})
 
+class GradingStage(WorkflowStage):
+
+    @property
+    def name(self) -> str:
+        return "Grading"
+    
+    @property
+    def stageno(self) -> str:
+        return 9
+    
+    def execute(self, context: GlobalContext):
+        requestid = context.state['requestid']
+        fuuid = context.state['fuuid']
+        daoriginal_fileid = context.state['dafileid']
+        redacted_filepath = Path(context.state['out_filepath'])
+        # redacted_filename = redacted_filepath.name
+        redacted_file_dafileid = context.state.get('out_dafileid',context.state['dafileid'])
+        
+        # filepath = context.state['filepath']
+        # if context.state.get('converted_filepath') is not None:
+        #     filepath = context.state['converted_filepath']
+        
+        if not self.should_execute(context):
+            logger.info(f"{fuuid}-[SKIP] {self.name}")
+            return
+        
+        self.get_file_local(fuuid, redacted_filepath)
+
+        df = self.db.get_documents(dafileid = redacted_file_dafileid)
+        dafileid = redacted_file_dafileid
+        if df.shape[0]==0:
+            df = self.db.get_documents(daoriginal_fileid = daoriginal_fileid)
+            dafileid = daoriginal_fileid
+        blank_values = ['', ' ', 'NA', 'N/A', 'null', 'None', 'NaN', 'nan', '#N/A']
+        df = df.replace(blank_values, None)
+        filerec = df.to_dict(orient="records")[0]
+
+        grader = ContentGrader(filepath=redacted_filepath, dafileid=redacted_file_dafileid, debug=self.cfg.DEBUG)
+        grade_result = grader.main(**filerec)
+        grade_result['fuuid'] = fuuid
+        grade_result['requestid'] = requestid
+        grade_result['dafileid'] = dafileid
+        
+        # Insert initial grading row with 4 id's
+        self.db.insert_grading(**grade_result)
+        logger.info(f"{fuuid}-Inserted grading row")
+        
+        # Send status update
+        self.send_updates_to_db(context)
+        
+        logger.info(f"{fuuid}-Grading completed successfully for {redacted_filepath.suffix.lower()}")
+        
+
+
+
 # class GenerateOutPayload(WorkflowStage):
 
 #     @property
@@ -519,10 +650,12 @@ class WorkflowOrchestrator:
     class_map = {1:DownloadStage,
                  2:ConvertFileStage,
                  3:ExtractFileContentsStage,
-                 4:SensitiveItemsExtStage,
-                 5:ClassifyStage,
-                 6:RedactionStage,
-                 7:UploadOutputs}
+                 4:SimilarityStage,
+                 5:SensitiveItemsExtStage,
+                 6:ClassifyStage,
+                 7:RedactionStage,
+                 8:UploadOutputs,
+                 9:GradingStage}
                 #  8:GenerateOutPayload}
     
     @staticmethod
@@ -535,7 +668,7 @@ class WorkflowOrchestrator:
         
     def __init__(self,enabled_stages,producer=None):
         enabled_stages = {key:val for key,val in enabled_stages.items() if val}
-        self.stages = [WorkflowOrchestrator.create_object(seqno) for seqno in enabled_stages.keys()]
+        self.stages = [WorkflowOrchestrator.create_object(seqno) for seqno in sorted(enabled_stages.keys())]
         self.producer = producer
         self.db = DatabaseManager()
 
@@ -588,6 +721,3 @@ class WorkflowOrchestrator:
                 shutil.rmtree(path)
             except PermissionError as e:
                 logger.error(f"{fuuid}-->Failed to delete {path}: {e}", exc_info=True)
-
-        
- 

@@ -75,6 +75,8 @@ def main():
         Gtl_Recommendation(producer, Config.OUTPUT_TOPIC, Config.DEBUG)
     )
 
+    
+    
     # Start listening
     try:
         listener.start()

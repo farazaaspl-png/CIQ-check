@@ -1,4 +1,4 @@
-
+import os
 import traceback
 import threading,time,json,logging
 from core.emailNotification import notify_failures
@@ -8,8 +8,8 @@ from kafka.errors import KafkaError
 from typing import Callable, Dict, List, Optional
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
+from core.log_helper import move_log_file
 
- 
 from core.db.crud import DatabaseManager
 from core.utility import get_custom_logger, request_id_var, session_id_var
 from core.s3_helper import StorageManager
@@ -86,14 +86,14 @@ class KafkaMessageListener:
             payload = raw_message.get('payload', {})
             request_id = header.get("requestId", "-")
             request_id_var.set(request_id)
-            session_handler = add_session_file_handler(logger, session_id_var.get(), request_id)
+            # session_handler = add_session_file_handler(logger, session_id_var.get(), request_id)
 
             logger.warning(f"RAW MESSAGE : {raw_message}")
 
             if isinstance(payload, dict) and 'payload' in payload:
                 payload = payload.get('payload', {})
 
-            return header, payload, session_handler
+            return header, payload
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse message: {e}",exc_info=True)
             raise
@@ -122,13 +122,10 @@ class KafkaMessageListener:
         if handler:
             try:
                 logger.info(f"Processing message type: {event_type}")
-                # logger.info(f"Message payload: {payload}")
-                # logger.info(f"Message header: {header}")
                 db=DatabaseManager()
                 logger.info(f"Created db instance")
 
                 db.insert_event_record(header, payload, is_request=True)
-                
                 handler.handle(header, payload)
                 # Run the function asynchronously
                 # thread = threading.Thread(target=handler.handle(header, payload))
@@ -164,14 +161,12 @@ class KafkaMessageListener:
             
             for message in self.consumer:
                 header = None
-                session_handler = None
                 try:
                     
                     session_id = str(uuid.uuid4())
                     session_id_var.set(session_id)
-
+                    header, data = self._parse_message(message.value)
                     self.consumer.commit()
-                    header, data, session_handler = self._parse_message(message.value)
                     self._route_message(header, data)
                     logger.warning(f"MESSAGE PROCESSED :: header: {header}, payload: {data}")
                 except Exception as e:
@@ -186,9 +181,12 @@ class KafkaMessageListener:
                     self.send_notification(context, e)
                     # Continue processing next message
                 finally:
-                    if session_handler:
-                        remove_session_file_handler(logger, session_handler)
+                    # remove_session_file_handler(logger, session_handler)
+                    try:
+                        move_log_file(request_id_var.get(), session_id)
                         s3.upload_folder(folder_path="deployment/logs", prefix=f"logs", delete_after_upload=True)
+                    except Exception as e:
+                        logger.error(f"Error uploading logs: {e}", exc_info=True)
 
                     session_id_var.set("-")
                     request_id_var.set("-")

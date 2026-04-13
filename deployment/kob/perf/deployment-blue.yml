@@ -108,27 +108,3 @@ spec:
       target:
         type: Utilization
         averageUtilization: 90
-
----
-apiVersion: k8s.nginx.org/v1
-kind: VirtualServer
-metadata:
-  name: {APP_NAME}-server
-  namespace: {KUBE_KOB_NAMESPACE}
-spec:
-  host: {APP_NAME}.dev-a1-np.kob.dell.com
-  ingressClassName: {INGRESS_CLASS_NAME}
-  tls:
-    redirect:
-      enable: true
-  upstreams:
-    - name: {APP_NAME}-service
-      service: {APP_NAME}-service
-      port: 80
-      lb-method: round_robin
-  routes:
-    - path: /
-      action:
-        pass: {APP_NAME}-service
-  server-snippets: |
-    underscores_in_headers on;

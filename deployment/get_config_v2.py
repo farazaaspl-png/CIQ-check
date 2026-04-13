@@ -194,6 +194,7 @@ if __name__ == "__main__":
         f.write(f"ECS_ENDPOINT={_escape(ECS_ENDPOINT)}\n")
         f.write(f"ACCESS_KEY_ID={_escape(ACCESS_KEY_ID)}\n")
         f.write(f"SECRET_ACCESS_KEY={_escape(SECRET_ACCESS_KEY)}\n")
+        f.write(f"SERVICE_TYPE={os.getenv("TYPE")}\n")
 
     # download tokenizer
 

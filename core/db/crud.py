@@ -289,7 +289,25 @@ class TCONSULTANT_FEEDBACK(Base):
     message = Column(String(255), nullable=False)
     usercomments = Column(Text, nullable=True)
     created_date = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    
+
+class TGrading(Base):
+    __tablename__ = cfg.GRADING_TABLE
+ 
+    # id = Column(Integer, primary_key=True, autoincrement=True)
+    requestid = Column(UUID(as_uuid=True), primary_key=True, nullable=False)
+    fuuid = Column(UUID(as_uuid=True), primary_key=True, nullable=False)
+    dafileid = Column(UUID(as_uuid=True), primary_key=True, nullable=False)
+    spelling_accuracy = Column(Float, nullable=True)
+    grammar_accuracy = Column(Float, nullable=True)
+    coherence = Column(Float, nullable=True)
+    clarity = Column(Float, nullable=True)
+    relevance = Column(Float, nullable=True)
+    coverage = Column(Float, nullable=True)
+    redundancy = Column(Float, nullable=True)
+    grade_score = Column(Float, nullable=True)
+    grade = Column(String(50), nullable=False)
+    summary = Column(Text, nullable=True)
+
     
 def retry_on_operational_error(max_attempts: int = 3, backoff: float = 1.0):
     """Retry a DB write when the underlying DBAPI raises OperationalError."""
@@ -912,6 +930,18 @@ class DatabaseManager:
             raise DatabaseWriteError(error = f'Failed while inserting document state into DB: {e}')
     
     @retry_on_operational_error()
+    def insert_grading(self, **kwargs):
+        try:
+            with self.Session() as session:
+                grading_row = TGrading(**kwargs)
+                session.add(grading_row)
+                session.commit()
+                # optionally return grading_row if you need it
+        except Exception as e:
+            logger.error(f'Failed while inserting grading row into DB: {e}', exc_info=True)
+            raise DatabaseWriteError(error=f'Failed while inserting grading row into DB: {e}')
+    
+    @retry_on_operational_error()
     def update_document_state(self, where_clause: dict, update_values: dict):
         """
         Updates documents in the database based on the provided WHERE clause and update values.
@@ -943,6 +973,40 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f'Failed while updating document state in DB: {e}', exc_info=True)
             raise DatabaseWriteError(error = f'Failed while updating document state in DB: {e}')
+        
+    @retry_on_operational_error()
+    def update_grading(self, where_clause: dict, update_values: dict):
+        """
+        Update rows in the TGrading table based on the provided WHERE clause.
+    
+        Parameters:
+        - where_clause (dict): column -> value filters.
+        - update_values (dict): column -> new value updates.
+    
+        Returns:
+        - The number of rows updated.
+        """
+        try:
+            with self.Session() as session:
+                query = session.query(TGrading)
+    
+                # Apply WHERE clause filters
+                for key, value in where_clause.items():
+                    if hasattr(TGrading, key):
+                        query = query.filter(getattr(TGrading, key) == value)
+                    else:
+                        logger.warning(f"Ignoring unknown column in WHERE clause: {key}")
+    
+                # Update the filtered rows
+                updated_rows = query.update(update_values)
+    
+                # Commit the changes
+                session.commit()
+                return updated_rows
+        except Exception as e:
+            logger.error(f'Failed while updating grading in DB: {e}', exc_info=True)
+            raise DatabaseWriteError(error=f'Failed while updating grading in DB: {e}')
+
 
     @retry_on_operational_error()
     def delete_document_state(self, where_clause: dict):
@@ -1059,40 +1123,87 @@ class DatabaseManager:
             logger.error(f'Failed while updating document in DB: {e}', exc_info=True)
             raise DatabaseWriteError(error = f'Failed while updating document in DB: {e}')
         
+    # @retry_on_operational_error()
+    # def update_gtl_synopsis(self, totalRedacted: int, **filters):
+    #     """
+    #     Updates gtl_synopsis column using dynamic AND filters.
+    #     """
+    #     try:
+    #         with self.Session() as session:
+    #             query = session.query(TDocument)
+    #             for key, value in filters.items():
+    #                 if hasattr(TDocument, key):
+    #                     query = query.filter(getattr(TDocument, key) == value)
+    #                 else:
+    #                     logger.warning(f"Ignoring unknown filter key for TDocument: {key}")
+
+    #             document = query.first()
+
+    #             if not document:
+    #                 logger.warning(f"No document found for filters: {filters}")
+    #                 return False
+
+    #             if totalRedacted == 0:
+    #                 redaction_line = "<br><b>Redaction Summary:</b> There are no sensitive items found in this file."
+    #             else:
+    #                 redaction_line = (f"<br><b>Redaction Summary:</b> " f"{totalRedacted} sensitive item's got redacted for this file.")
+
+    #             existing_synopsis = document.gtl_synopsis or ""
+
+    #             # Remove previous Redaction Summary if exists
+    #             if "Redaction Summary:" in existing_synopsis:
+    #                 existing_synopsis = existing_synopsis.split("<br><b>Redaction Summary:</b>")[0]
+
+    #             updated_synopsis = existing_synopsis + redaction_line
+
+    #             updated_rows = query.update({"gtl_synopsis": updated_synopsis})
+    #             session.commit()
+    #             return updated_rows > 0
+
+    #     except Exception as e:
+    #         logger.error(f"Failed to update gtl_synopsis: {e}", exc_info=True)
+    #         raise DatabaseWriteError(
+    #             error=f"Failed while updating gtl_synopsis: {e}"
+    #         )
+    
     @retry_on_operational_error()
-    def update_gtl_synopsis(self, totalRedacted: int, **filters):
+    def update_gtl_synopsis(self, where_clause: dict,update_message: dict):
         """
-        Updates gtl_synopsis column using dynamic AND filters.
+        Generic gtl_synopsis updater.
+        message format: {"Section Key": "plain text body"}
+        e.g. {
+                "Similarity Summary": "Input File: AD_Health.docx is similar to...",
+                "Redaction Summary" : "3 sensitive item's got redacted for this file."
+            }
         """
         try:
             with self.Session() as session:
                 query = session.query(TDocument)
-                for key, value in filters.items():
+                for key, value in where_clause.items():
                     if hasattr(TDocument, key):
                         query = query.filter(getattr(TDocument, key) == value)
                     else:
                         logger.warning(f"Ignoring unknown filter key for TDocument: {key}")
 
                 document = query.first()
-
                 if not document:
-                    logger.warning(f"No document found for filters: {filters}")
+                    logger.warning(f"No document found for filters: {where_clause}")
                     return False
-
-                if totalRedacted == 0:
-                    redaction_line = "<br><b>Redaction Summary:</b> There are no sensitive items found in this file."
-                else:
-                    redaction_line = (f"<br><b>Redaction Summary:</b> " f"{totalRedacted} sensitive item's got redacted for this file.")
 
                 existing_synopsis = document.gtl_synopsis or ""
 
-                # Remove previous Redaction Summary if exists
-                if "Redaction Summary:" in existing_synopsis:
-                    existing_synopsis = existing_synopsis.split("<br><b>Redaction Summary:</b>")[0]
+                # ── Process each section in message dict ──────────────
+                for section_key, body in update_message.items():
+                    block_header = f"<br><b>{section_key}:</b>"
 
-                updated_synopsis = existing_synopsis + redaction_line
+                    # Strip previous block for re-run safety
+                    if block_header in existing_synopsis:
+                        existing_synopsis = existing_synopsis.split(block_header)[0]
 
-                updated_rows = query.update({"gtl_synopsis": updated_synopsis})
+                    # Append new block
+                    existing_synopsis = existing_synopsis + f"{block_header} {body}"
+
+                updated_rows = query.update({"gtl_synopsis": existing_synopsis})
                 session.commit()
                 return updated_rows > 0
 
@@ -1100,8 +1211,7 @@ class DatabaseManager:
             logger.error(f"Failed to update gtl_synopsis: {e}", exc_info=True)
             raise DatabaseWriteError(
                 error=f"Failed while updating gtl_synopsis: {e}"
-            )
-    
+        )
     @retry_on_operational_error()
     def delete_document(self, where_clause: dict):
         """

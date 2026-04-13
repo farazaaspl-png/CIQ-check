@@ -160,7 +160,7 @@ class PptxExtractor:
         shapes = self._post_process_shapes_for_reading_order(shapes)
 
         # slide_output = [f"<Slide {slide_num} - Start>"]
-        self.assembled.append(f"<Slide {slide_num} - Start>")
+        self.assembled.append(f"=== Slide {slide_num} - Start ===")
         image_counter = 1
         # print(shapes)
         logger.debug(f'{self.fileid}-->Extracted text for slide {slide_num} - {shapes}')
@@ -202,7 +202,7 @@ class PptxExtractor:
                 self.assembled.append(imageinfo)
                 image_counter += 1
 
-        self.assembled.append(f"<Slide {slide_num} - End>")
+        self.assembled.append(f"=== Slide {slide_num} - End ===")
         logger.info(f'{self.fileid}-->Extracted all the text for slide {slide_num}')
         # return "\n".join(slide_output)
 

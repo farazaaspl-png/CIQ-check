@@ -1,10 +1,54 @@
-FROM harbor.dell.com/devops-images/debian-12/python-3.12:latest as base
+FROM harbor.dell.com/devops-images/debian-12/python-3.12:latest
 
 WORKDIR /app
-COPY . .
 
-RUN pip install -r requirements.txt
+COPY streamlit/ .
+COPY services/ ./services/
+COPY core/ ./core/
+COPY config.py .
+COPY deployment/get_config_v2.py .
+
+ARG BUCKET_NAME
+ARG ACCESS_KEY_ID
+ARG SECRET_ACCESS_KEY
+ARG ECS_ENDPOINT
+ARG ENVIRONMENT_TAG
+ARG VAULT_ROLE_ID
+ARG VAULT_SECRET_ID
+ARG VAULT_ADDR
+ARG VAULT_NAMESPACE
+ARG KOB_NAMESPACE
+
+ENV BUCKET_NAME=${BUCKET_NAME}
+ENV ACCESS_KEY_ID=${ACCESS_KEY_ID}
+ENV SECRET_ACCESS_KEY=${SECRET_ACCESS_KEY}
+ENV ECS_ENDPOINT=${ECS_ENDPOINT}
+ENV ENVIRONMENT_TAG=${ENVIRONMENT_TAG}
+ENV VAULT_ROLE_ID=${VAULT_ROLE_ID}
+ENV VAULT_SECRET_ID=${VAULT_SECRET_ID}
+ENV VAULT_ADDR=${VAULT_ADDR}
+ENV VAULT_NAMESPACE=${VAULT_NAMESPACE}
+ENV KOB_NAMESPACE=${KOB_NAMESPACE}
+
+RUN useradd -m -u 1001 appuser \
+    && chown -R appuser:appuser /app \
+    && chown appuser:appuser $(python -m certifi) \
+    && chmod 755 /usr/local/lib/python3.12/site-packages/certifi
+
+ENV HOME=/home/appuser \
+    STREAMLIT_CONFIG_DIR=/home/appuser/.streamlit \
+    XDG_CACHE_HOME=/home/appuser/.cache
+
+RUN mkdir -p /home/appuser/.streamlit /home/appuser/.cache
+
+ENV HOME=/home/appuser
+
+RUN chmod +x streamlitEntrypoint.sh
+
+RUN pip install --no-cache-dir -r requirements.txt
+
+USER appuser
 
 EXPOSE 8501
 
-CMD ["python", "-m", "streamlit", "run", "main.py", "--server.address=0.0.0.0", "--server.port=8501"]
+ENTRYPOINT ["./streamlitEntrypoint.sh"]

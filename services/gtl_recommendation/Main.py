@@ -27,13 +27,19 @@ def get_execution_stages(config, event_type, event_sub_type, file_suffix, curren
                 'download':1,
                 'convert':2,
                 'content_extraction':3,
-                'sensitive_item_extraction':4,
-                'classification':5,
-                'redaction':6,
-                'upload':7,
-                'generatepayload':8}
+                'similarity':4,
+                'sensitive_item_extraction':5,
+                'classification':6,
+                'redaction':7,
+                'upload':8,
+                'grading':9}
+                # 'generatepayload':8}
+    # for key in stageseq.keys():
+    #     if key in exe_stage:
+    #         logger.info(f"Stage {key} (stageno {stageseq[key]}): database value = {exe_stage[key]}, currentstage = {currentstage} (stageno {stageseq.get(currentstage, 'N/A')})")
     
-    exe_stage = {stageseq[key]:(False if stageseq[key]<=stageseq[currentstage] else val) for key,val in exe_stage.items() if key not in ('event_type', 'event_sub_type', 'file_suffix') and key in stageseq.keys()}
+    exe_stage = {stageseq[key]:(False if stageseq[key]<=stageseq[currentstage] else val) for key,val in exe_stage.items() if key not in ('event_type', 'event_sub_type', 'file_suffix')}
+    # logger.info(f"FINAL ENABLED STAGES: {exe_stage}")
     return exe_stage
         
 

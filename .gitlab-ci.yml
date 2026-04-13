@@ -3,6 +3,7 @@ include:
     - local: deployment/gitlab_config/kob-perf-jobs.yml
     - local: deployment/gitlab_config/kob-prod-jobs.yml
     - local: deployment/custom-script.yml
+    # - local: streamlit/gitlab_config/kob-dev-jobs.yml
     - project: devops/job-templates
       ref: v3.0.0
       file: python-jobs.yml
@@ -38,19 +39,16 @@ variables:
   PROJECT_APP_NAME: 'ip-content-management'
   PROJECT_APP_VERSION: '1.0.0'
   PROJECT_BRANCH_NAME: $CI_COMMIT_REF_NAME
-  UI_APP_NAME: 'streamlit'
+  UI_APP_NAME: 'streamlit-ciq'
 
   #Deployment variables
   KOB_NAMESPACE_DEV: deploy-agentic-np
-  # DEV_INGRESS_CLASS_NAME: 'kob-ingress-consult-np'
   DEV_HEALTH_CHECK_URL: 'https://$PROJECT_APP_NAME.dev-v1-np.kob.dell.com/api/v0/health'
 
   KOB_NAMESPACE_PERF: deploy-agentic-np
-  # DEV_INGRESS_CLASS_NAME: 'kob-ingress-consult-np'
   PERF_HEALTH_CHECK_URL: 'https://$PROJECT_APP_NAME.dev-v1-np.kob.dell.com/api/v0/health'
 
   KOB_NAMESPACE_PROD: consult-prod
-  # PROD_PC1_INGRESS_CLASS_NAME: 'kob-ingress-process-eng-prd'
   PROD_PC1_HEALTH_CHECK_URL: 'https://$PROJECT_APP_NAME.prod-v1.kob.dell.com/api/v0/health'
 
 stages:
@@ -58,11 +56,5 @@ stages:
   # - verify-build
   - build-docker-image
   - deploy-dev
-  # - validate-deploy-dev
-  # - post-deploy-dev
   - deploy-perf
-  # - validate-deploy-perf
-  # - post-deploy-perf
   - deploy-prod
-  # - validate-prod
-  # - post-deploy-prod

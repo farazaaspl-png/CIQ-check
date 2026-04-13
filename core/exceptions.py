@@ -32,6 +32,7 @@ class TextExtractionForZipError(CustomBaseException):
     error_code = 'Z000'
     user_message='Text Extraction Failed for Zip Contents.'
     def __init__(self, error = None):
+        self.user_message='Text Extraction Failed for Zip Contents.'
         if error is not None:
             self.message = f'{self.user_message} Error: {error}'
         else: self.message = f'{self.user_message}'
@@ -42,6 +43,7 @@ class ZipSummaryGenerationError(CustomBaseException):
     error_code = 'Z001'
     user_message='Zip Summay Generation Failed.'
     def __init__(self, error = None):
+        self.user_message='Zip Summay Generation Failed.'
         if error is not None:
             self.message = f'{self.user_message} Error: {error}'
         else: self.message = f'{self.user_message}'
@@ -53,6 +55,7 @@ class NoValidFilesInZip(CustomBaseException):
     error_code = 'Z002'
     user_message='Zip has no valid files.'
     def __init__(self, error = None):
+        self.user_message='Zip has no valid files.'
         if error is not None:
             self.message = f'{self.user_message} Error: {error}'
         else: self.message = f'{self.user_message}'
@@ -71,6 +74,7 @@ class FileFormatNotSupported(CustomBaseException):
     error_code = 'E001'
     user_message='The uploaded file format is not supported.'
     def __init__(self, fileformat = None):
+        self.user_message='The uploaded file format is not supported.'
         if fileformat:
             self.message = f"{self.user_message} - {fileformat}"
         else:
@@ -82,6 +86,7 @@ class IpTypeNotSupported(CustomBaseException):
     error_code = 'E002'
     user_message='The uploaded IP Type is not supported.'
     def __init__(self, ip_type = None):
+        self.user_message='The uploaded IP Type is not supported.'
         if ip_type:
             self.message = f"{self.user_message} - {ip_type}"
         else:
@@ -352,6 +357,20 @@ class UnableToGenerateSummary(CustomBaseException):
     """Raised when the system cannot produce a summary for a document."""
     error_code = "E012"
     user_message = "Unable to generate summary."
+    def __init__(self, fileid: str | None = None, message: str = ""):
+        if message:
+            self.message = f"{self.user_message} - {message}"
+        else:
+            self.message = self.user_message
+
+        if fileid:
+            self.message = f"{fileid} - {self.message}"
+        super().__init__(self.error_code, self.message, self.user_message)
+
+class UnableToGradeTheDocument(CustomBaseException):
+    """Raised when the system cannot produce a summary for a document."""
+    error_code = "G001"
+    user_message = "Unable to grade the document."
     def __init__(self, fileid: str | None = None, message: str = ""):
         if message:
             self.message = f"{self.user_message} - {message}"
