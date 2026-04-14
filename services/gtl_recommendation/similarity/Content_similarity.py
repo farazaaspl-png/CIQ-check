@@ -74,12 +74,12 @@ class ContentSimilarity:
 
             #Calculate fuzz Score
             fuzz_score = fuzz.ratio(input_chunk, template_chunk)
-            logger.info(f"input_chunk-{input_chunk}")
-            logger.info(f"input_chunk-{input_chunks}")
-            logger.info(f"template_chunk-{template_chunks}")
-            logger.debug(f"Chunk {idx + 1}/{total} : fuzz_score={fuzz_score:.2f}")
-            logger.debug(f"input chunk {input_chunk}")
-            logger.debug(f"template chunk {template_chunk}")
+            # logger.info(f"input_chunk-{input_chunk}")
+            # logger.info(f"input_chunk-{input_chunks}")
+            # logger.info(f"template_chunk-{template_chunks}")
+            # logger.debug(f"Chunk {idx + 1}/{total} : fuzz_score={fuzz_score:.2f}")
+            # logger.debug(f"input chunk {input_chunk}")
+            # logger.debug(f"template chunk {template_chunk}")
 
             fuzz_scores.append(fuzz_score)
 

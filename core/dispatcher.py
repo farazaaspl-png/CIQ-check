@@ -19,6 +19,7 @@ from core.readers.flatfilereaders import FlatFileReader
 from core.readers.excelreader import ExcelExtractor
 
 from core.doc_converter import DocConverter
+from core.libreoffice_converter import LibreOfficeConverter
 # from core.pdf_to_pptx import pdf_to_pptx_final
 from services.gtl_recommendation.redaction.text.RedactorFlatFile import FlatFileRedactor
 from services.gtl_recommendation.redaction.text.RedactorDoc import DocRedactor
@@ -222,177 +223,28 @@ class Dispatcher:
 
     def _convert_doc_to_docx_libreoffice(self):
         """Convert DOC to DOCX using LibreOffice (single step)."""
-        libreoffice_path = getattr(self.cfg, 'LIBREOFFICE_PATH')
-        parent_dir = str(self.filepath.parent)
-        base_name = self.filepath.stem
-
-        logger.info(f"{self.dafileid}-Converting {self.filepath.name} to DOCX via LibreOffice...")
-
-        command = [
-            libreoffice_path, "--headless",
-            "--convert-to", "docx",
-            "--outdir", parent_dir,
-            str(self.filepath.resolve())
-        ]
-
-        try:
-            subprocess.run(command, check=True, capture_output=True, text=True)
-            logger.info(f"{self.dafileid}-Successfully converted to {base_name}.docx")
-            converted_path = self.filepath.with_suffix('.docx')
-            s3 = StorageManager()
-            s3.upload(str(converted_path), overwrite=True)
-            logger.info(f"{self.dafileid}-Uploaded {converted_path.name} to S3")
-        except subprocess.CalledProcessError as e:
-            logger.error(f"{self.dafileid}-LibreOffice DOC to DOCX conversion failed: {e.stderr}", exc_info=True)
-            raise Exception(f"{self.dafileid}-LibreOffice DOC to DOCX conversion failed: {e.stderr}")
+        lc = LibreOfficeConverter(self.filepath, fileid=self.dafileid)
+        lc.convert_doc_to_docx(upload=True)
 
     def _convert_ppt_to_pptx_libreoffice(self):
         """Convert PPT to PPTX using LibreOffice (single step)."""
-        libreoffice_path = getattr(self.cfg, 'LIBREOFFICE_PATH')
-        parent_dir = str(self.filepath.parent)
-        base_name = self.filepath.stem
-
-        logger.info(f"{self.dafileid}-Converting {self.filepath.name} to PPTX via LibreOffice...")
-
-        command = [
-            libreoffice_path, "--headless",
-            "--convert-to", "pptx",
-            "--outdir", parent_dir,
-            str(self.filepath.resolve())
-        ]
-
-        try:
-            subprocess.run(command, check=True, capture_output=True, text=True)
-            logger.info(f"{self.dafileid}-Successfully converted to {base_name}.pptx")
-            converted_path = self.filepath.with_suffix('.pptx')
-            s3 = StorageManager()
-            s3.upload(str(converted_path), overwrite=True)
-            logger.info(f"{self.dafileid}-Uploaded {converted_path.name} to S3")
-        except subprocess.CalledProcessError as e:
-            logger.error(f"{self.dafileid}-LibreOffice PPT to PPTX conversion failed: {e.stderr}", exc_info=True)
-            raise Exception(f"{self.dafileid}-LibreOffice PPT to PPTX conversion failed: {e.stderr}")
+        lc = LibreOfficeConverter(self.filepath, fileid=self.dafileid)
+        lc.convert_ppt_to_pptx(upload=True)
 
     def _convert_xls_to_xlsx_libreoffice(self):
         """Convert XLS to XLSX using LibreOffice (2-step: XLS->ODS->XLSX)."""
-        libreoffice_path = getattr(self.cfg, 'LIBREOFFICE_PATH')
-        parent_dir = str(self.filepath.parent)
-        base_name = self.filepath.stem
-        ods_path = self.filepath.with_suffix('.ods')
-
-        logger.info(f"{self.dafileid}-Converting {self.filepath.name} to ODS via LibreOffice (Step 1/2)...")
-
-        command_step1 = [
-            libreoffice_path, "--headless",
-            "--convert-to", "ods",
-            "--outdir", parent_dir,
-            str(self.filepath.resolve())
-        ]
-
-        command_step2 = [
-            libreoffice_path, "--headless",
-            "--convert-to", "xlsx",
-            "--outdir", parent_dir,
-            str(ods_path.resolve())
-        ]
-
-        try:
-            subprocess.run(command_step1, check=True, capture_output=True, text=True)
-            logger.info(f"{self.dafileid}-Upgrading {base_name}.ods to XLSX (Step 2/2)...")
-            subprocess.run(command_step2, check=True, capture_output=True, text=True)
-
-            if ods_path.exists():
-                os.remove(ods_path)
-
-            logger.info(f"{self.dafileid}-Successfully converted to {base_name}.xlsx")
-            converted_path = self.filepath.with_suffix('.xlsx')
-            s3 = StorageManager()
-            s3.upload(str(converted_path), overwrite=True)
-            logger.info(f"{self.dafileid}-Uploaded {converted_path.name} to S3")
-        except subprocess.CalledProcessError as e:
-            logger.error(f"{self.dafileid}-LibreOffice XLS to XLSX conversion failed: {e.stderr}", exc_info=True)
-            raise Exception(f"{self.dafileid}-LibreOffice XLS to XLSX conversion failed: {e.stderr}")
+        lc = LibreOfficeConverter(self.filepath, fileid=self.dafileid)
+        lc.convert_xls_to_xlsx(upload=True)
 
     def _convert_pdf_to_pptx_libreoffice(self):
         """Convert PDF to PPTX using LibreOffice (2-step: PDF->PPT->PPTX)."""
-        libreoffice_path = getattr(self.cfg, 'LIBREOFFICE_PATH')
-        parent_dir = str(self.filepath.parent)
-        filename = self.filepath.name
-        base_name = self.filepath.stem
-
-        logger.info(f"{self.dafileid}-Converting {filename} to PPT via LibreOffice (Step 1/2)...")
-
-        # STEP 1: PDF -> PPT (Preserves formatting)
-        command_step1 = [
-            libreoffice_path, "--headless",
-            "--infilter=impress_pdf_import",
-            "--convert-to", "ppt",
-            "--outdir", parent_dir,
-            str(self.filepath)
-        ]
-
-        # STEP 2: PPT -> PPTX (Validates format)
-        command_step2 = [
-            libreoffice_path, "--headless",
-            "--convert-to", "pptx",
-            "--outdir", parent_dir,
-            str(self.filepath.with_suffix('.ppt'))
-        ]
-
-        try:
-            subprocess.run(command_step1, check=True, capture_output=True, text=True)
-            logger.info(f"{self.dafileid}-Upgrading {base_name}.ppt to PPTX (Step 2/2)...")
-            subprocess.run(command_step2, check=True, capture_output=True, text=True)
-
-            # Clean up the intermediate .ppt file
-            ppt_intermediate = self.filepath.with_suffix('.ppt')
-            if ppt_intermediate.exists():
-                os.remove(ppt_intermediate)
-
-            logger.info(f"{self.dafileid}-Successfully converted to {base_name}.pptx")
-        except subprocess.CalledProcessError as e:
-            logger.error(f"{self.dafileid}-LibreOffice PDF to PPTX conversion failed: {e.stderr}", exc_info=True)
-            raise Exception(f"{self.dafileid}-LibreOffice PDF to PPTX conversion failed: {e.stderr}")
+        lc = LibreOfficeConverter(self.filepath, fileid=self.dafileid)
+        lc.convert_pdf_to_pptx()
 
     def _convert_pdf_to_docx_libreoffice(self):
         """Convert PDF to DOCX using LibreOffice (2-step: PDF->DOC->DOCX)."""
-        libreoffice_path = getattr(self.cfg, 'LIBREOFFICE_PATH')
-        parent_dir = str(self.filepath.parent)
-        filename = self.filepath.name
-        base_name = self.filepath.stem
-
-        logger.info(f"{self.dafileid}-Converting {filename} to DOC via LibreOffice (Step 1/2)...")
-
-        # STEP 1: PDF -> DOC (Preserves formatting)
-        command_step1 = [
-            libreoffice_path, "--headless",
-            "--infilter=writer_pdf_import",
-            "--convert-to", "doc",
-            "--outdir", parent_dir,
-            str(self.filepath)
-        ]
-
-        # STEP 2: DOC -> DOCX (Validates format)
-        command_step2 = [
-            libreoffice_path, "--headless",
-            "--convert-to", "docx",
-            "--outdir", parent_dir,
-            str(self.filepath.with_suffix('.doc'))
-        ]
-
-        try:
-            subprocess.run(command_step1, check=True, capture_output=True, text=True)
-            logger.info(f"{self.dafileid}-Upgrading {base_name}.doc to DOCX (Step 2/2)...")
-            subprocess.run(command_step2, check=True, capture_output=True, text=True)
-
-            # Clean up the intermediate .doc file
-            doc_intermediate = self.filepath.with_suffix('.doc')
-            if doc_intermediate.exists():
-                os.remove(doc_intermediate)
-
-            logger.info(f"{self.dafileid}-Successfully converted to {base_name}.docx")
-        except subprocess.CalledProcessError as e:
-            logger.error(f"{self.dafileid}-LibreOffice PDF to DOCX conversion failed: {e.stderr}", exc_info=True)
-            raise Exception(f"{self.dafileid}-LibreOffice PDF to DOCX conversion failed: {e.stderr}")
+        lc = LibreOfficeConverter(self.filepath, fileid=self.dafileid)
+        lc.convert_pdf_to_docx()
 
     def _non_blank_pages(self, pdf_path: Path) -> list[int]:
         """

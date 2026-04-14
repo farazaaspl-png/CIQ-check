@@ -326,7 +326,7 @@ class SimilarityStage(WorkflowStage):
             "filename":template_filename,
             "templatedaFileId":template_dafileid}
         
-        template_path = (Path(self.cfg.DATA_DIR) / self.cfg.GTL_FLOW_DIR / str(self.template_dafileid) / self.template_filename)
+        template_path = (Path(self.cfg.DATA_DIR) / self.cfg.GTL_FLOW_DIR / str(template_dafileid) / template_filename)
 
         # Step-2 Similarity and Description
         content_sim = ContentSimilarity(textContent=filecontent, debug=self.cfg.DEBUG, **context.payload,**template_payload)
@@ -337,8 +337,8 @@ class SimilarityStage(WorkflowStage):
             self.send_updates_to_db(context)
             return
 
-        similarity_score  = content_sim_out[0]
-        description = content_sim_out[1]
+        similarity_score  = content_sim_out.get("similarity_score")
+        description = content_sim_out.get("description")
  
         logger.info(f"{fuuid}- Similarity done: avg_fuzz={similarity_score:.2f}")
  
