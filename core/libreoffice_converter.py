@@ -1,5 +1,6 @@
 import os, subprocess, tempfile, shutil, threading
 from pathlib import Path
+import uuid
 
 from config import Configuration
 from core.s3_helper import StorageManager
@@ -31,7 +32,8 @@ class LibreOfficeConverter:
 
     def _run(self, command: list[str]):
         """Run a LibreOffice command with an isolated temporary user profile."""
-        tmp_profile = tempfile.mkdtemp(prefix="lo_profile_")
+        unique_id = uuid.uuid4()
+        tmp_profile = tempfile.mkdtemp(prefix=f"lo_profile_{unique_id}_")
         try:
             # with _LIBREOFFICE_SEMAPHORE:
             #     self._run_with_profile(command, tmp_profile)
@@ -42,17 +44,28 @@ class LibreOfficeConverter:
     def _run_with_profile(self, command: list[str], tmp_profile: str):
         """Run a single LibreOffice command using a given profile directory."""
         profile_url = Path(tmp_profile).as_uri()
-        cmd = [command[0], f"-env:UserInstallation={profile_url}"] + command[1:]
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        cmd = [command[0], f"-env:UserInstallation={profile_url}", "--headless","--invisible","--nodefault","--nologo","--nolockcheck","--writer","-nocrashreport"] + command[1:]
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True, timeout = 1800)
+        except subprocess.TimeoutExpired:
+            logger.error(f"{self.fileid}-LibreOffice command timed out: {cmd}")
+            raise
+        except subprocess.CalledProcessError as e:
+            logger.error(f"{self.fileid}-LibreOffice command failed: {cmd}")
+            logger.error(f"{self.fileid}-Stdout: {e.stdout}")
+            logger.error(f"{self.fileid}-Error output: {e.stderr}")
+            raise
 
     def _run_steps(self, commands: list[list[str]]):
         """Run multiple LibreOffice commands sequentially sharing one temp profile."""
-        tmp_profile = tempfile.mkdtemp(prefix="lo_profile_")
+        unique_id = uuid.uuid4()
+        tmp_profile = tempfile.mkdtemp(prefix=f"lo_profile_{unique_id}_")
         try:
             # with _LIBREOFFICE_SEMAPHORE:
             #     for command in commands:
             #         self._run_with_profile(command, tmp_profile)
-            for command in commands:
+            for idx, command in enumerate(commands):
+                logger.info(f"{self.fileid}-Converting via LibreOffice (Step {idx+1}/{len(commands)})...")
                 self._run_with_profile(command, tmp_profile)
         finally:
             shutil.rmtree(tmp_profile, ignore_errors=True)
@@ -120,7 +133,7 @@ class LibreOfficeConverter:
         base_name = self.filepath.stem
         ods_path = self.filepath.with_suffix('.ods')
 
-        logger.info(f"{self.fileid}-Converting {self.filepath.name} to ODS via LibreOffice (Step 1/2)...")
+        logger.info(f"{self.fileid}-Converting {self.filepath.name} to ODS via LibreOffice")
 
         command_step1 = [
             self.libreoffice_path, "--headless",
@@ -161,7 +174,7 @@ class LibreOfficeConverter:
         filename = self.filepath.name
         base_name = self.filepath.stem
 
-        logger.info(f"{self.fileid}-Converting {filename} to PPT via LibreOffice (Step 1/2)...")
+        logger.info(f"{self.fileid}-Converting {filename} to PPT via LibreOffice")
 
         command_step1 = [
             self.libreoffice_path, "--headless",
@@ -202,7 +215,7 @@ class LibreOfficeConverter:
         filename = self.filepath.name
         base_name = self.filepath.stem
 
-        logger.info(f"{self.fileid}-Converting {filename} to DOC via LibreOffice (Step 1/2)...")
+        logger.info(f"{self.fileid}-Converting {filename} to DOC via LibreOffice")
 
         command_step1 = [
             self.libreoffice_path, "--headless",

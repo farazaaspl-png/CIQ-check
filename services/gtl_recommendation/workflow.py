@@ -573,9 +573,18 @@ class GradingStage(WorkflowStage):
         requestid = context.state['requestid']
         fuuid = context.state['fuuid']
         daoriginal_fileid = context.state['dafileid']
-        redacted_filepath = Path(context.state['out_filepath'])
+        if context.state.get('out_filepath') is not None:
+            infilepath = Path(context.state.get('out_filepath'))
+            indafileid  = context.state.get('out_dafileid')
+        elif context.state.get('converted_filepath') is not None:
+            infilepath = Path(context.state.get('converted_filepath'))
+            indafileid  = context.state.get('out_dafileid')
+        else:
+            infilepath = Path(context.state.get('filepath'))
+            indafileid  = context.state.get('dafileid')
+        # redacted_filepath = Path(context.state.get('out_filepath',context.state.get('converted_filepath',context.state.get('filepath'))))
         # redacted_filename = redacted_filepath.name
-        redacted_file_dafileid = context.state.get('out_dafileid',context.state['dafileid'])
+        # redacted_file_dafileid = context.state.get('out_dafileid',context.state['dafileid'])
         
         # filepath = context.state['filepath']
         # if context.state.get('converted_filepath') is not None:
@@ -585,10 +594,10 @@ class GradingStage(WorkflowStage):
             logger.info(f"{fuuid}-[SKIP] {self.name}")
             return
         
-        self.get_file_local(fuuid, redacted_filepath)
+        self.get_file_local(fuuid, infilepath)
 
-        df = self.db.get_documents(dafileid = redacted_file_dafileid)
-        dafileid = redacted_file_dafileid
+        df = self.db.get_documents(dafileid = indafileid)
+        dafileid = indafileid
         if df.shape[0]==0:
             df = self.db.get_documents(daoriginal_fileid = daoriginal_fileid)
             dafileid = daoriginal_fileid
@@ -596,7 +605,7 @@ class GradingStage(WorkflowStage):
         df = df.replace(blank_values, None)
         filerec = df.to_dict(orient="records")[0]
 
-        grader = ContentGrader(filepath=redacted_filepath, dafileid=redacted_file_dafileid, debug=self.cfg.DEBUG)
+        grader = ContentGrader(filepath=infilepath, dafileid=indafileid, debug=self.cfg.DEBUG)
         grade_result = grader.main(**filerec)
         grade_result['fuuid'] = fuuid
         grade_result['requestid'] = requestid
@@ -609,7 +618,7 @@ class GradingStage(WorkflowStage):
         # Send status update
         self.send_updates_to_db(context)
         
-        logger.info(f"{fuuid}-Grading completed successfully for {redacted_filepath.suffix.lower()}")
+        logger.info(f"{fuuid}-Grading completed successfully for {infilepath.suffix.lower()}")
         
 
 

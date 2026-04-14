@@ -1,4 +1,4 @@
-import warnings, os, logging, subprocess
+import warnings, os, logging
 from pathlib import Path
 # from PIL import Image
 # import pypandoc
@@ -10,7 +10,7 @@ from docx import Document
 import fitz
 import uuid
 # from core.doc_converter import DocConverter
-# from core.pdf_to_pptx import pdf_to_pptx_final
+from core.pdf_to_pptx import pdf_to_pptx_final
 from core.s3_helper import StorageManager
 from core.libreoffice_converter import LibreOfficeConverter
 from config import Configuration
@@ -187,13 +187,21 @@ class FileConverter:
             logger.info(f"{self.fileid}-isSlidePdf: {isSlidePdf}, Score: {score}")
             if isSlidePdf:
                 converted_filepath = self.filepath.with_suffix('.pptx')
-                # pdf_to_pptx_final(pdf_path=self.filepath, pptx_path=self.filepath.with_suffix('.pptx'), mode="screen")
-                self._convert_pdf_to_pptx_libreoffice()
+                try:
+                    self._convert_pdf_to_pptx_libreoffice()
+                except Exception as e:
+                    logger.error(f"{self.fileid}-Failed to convert PDF to PPTX using LibreOffice. Error: {e}", exc_info=True)
+                    pdf_to_pptx_final(pdf_path=self.filepath, pptx_path=self.filepath.with_suffix('.pptx'), mode="screen")
+                
                 s3.upload(converted_filepath,overwrite=True)
             else:
                 converted_filepath = self.filepath.with_suffix('.docx')
-                # self.pdf_to_docx()
-                self._convert_pdf_to_docx_libreoffice()
+                try:
+                    self._convert_pdf_to_docx_libreoffice()
+                except Exception as e:
+                    logger.error(f"{self.fileid}-Failed to convert PDF to DOCX using LibreOffice. Error: {e}", exc_info=True)
+                    self.pdf_to_docx()
+    
                 s3.upload(converted_filepath,overwrite=True)
             return converted_filepath
         except Exception as e:

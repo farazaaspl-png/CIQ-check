@@ -20,7 +20,7 @@ from core.readers.excelreader import ExcelExtractor
 
 from core.doc_converter import DocConverter
 from core.libreoffice_converter import LibreOfficeConverter
-# from core.pdf_to_pptx import pdf_to_pptx_final
+from core.pdf_to_pptx import pdf_to_pptx_final
 from services.gtl_recommendation.redaction.text.RedactorFlatFile import FlatFileRedactor
 from services.gtl_recommendation.redaction.text.RedactorDoc import DocRedactor
 from services.gtl_recommendation.redaction.text.RedactorPpt import PowerPointRedactor
@@ -50,12 +50,13 @@ warnings.filterwarnings('ignore')
 logging.getLogger('pdf2docx').setLevel(logging.ERROR)
 logging.getLogger('pdf2image').setLevel(logging.ERROR)
 # DOC_FILES = ['.docx', '.doc', '.docm']
-DOC_FILES = ['.docx','.doc']
+
+DOC_FILES = ['.docx','.doc','.docm','.dot','.rtf']
 PDF_FILES = ['.pdf']
-PPT_FILES = ['.pptx', '.potx','.ppt']
+PPT_FILES = ['.pptx', '.potx','.ppt','.pot','.pps']
 FLAT_FILES = ['.csv','.txt','.psv','.json', '.htm', '.tm7', '.html','.log']
 # PPT_FILES = ['.pptx','.ppt']
-EXCEL_FILES = ['.xlsx', '.xls']#, '.xlsm', '.xlsb']
+EXCEL_FILES = ['.xlsx', '.xls', '.xlt', '.csv']#, '.xlsm', '.xlsb']
 # EXCEL_FILES = []
 
 SUPPORTED_FILES = DOC_FILES + PDF_FILES + PPT_FILES + EXCEL_FILES + FLAT_FILES
@@ -76,22 +77,13 @@ class Dispatcher:
     def getSOWExtractor(self):
         """Read content from different file types"""
         try:
-            # Convert legacy formats to modern equivalents before routing
-            if self.filepath.suffix.lower() == '.docm':
-                converter = DocConverter(self.filepath, self.debug)
+            if self.filepath.suffix.lower() in ('.docm','.doc'):
+                converter = DocConverter(self.filepath)
                 converter.convert_file()
                 self.filepath = self.filepath.with_suffix('.docx')
-            elif self.filepath.suffix.lower() == '.doc':
-                if not self.filepath.with_suffix('.docx').exists():
-                    self._convert_doc_to_docx_libreoffice()
-                self.filepath = self.filepath.with_suffix('.docx')
-            
 
             if self.filepath.suffix.lower() in DOC_FILES:
                 return DocumentExtractor(filepath = self.filepath, fileid = self.dafileid, debug = self.debug, analyze_images = self.analyze_images)
-            
-            # elif self.filepath.suffix.lower() in PPT_FILES:
-            #     return PptxExtractor(filepath = self.filepath, fileid = self.dafileid, debug = self.debug, analyze_images = self.analyze_images)
             
             elif self.filepath.suffix.lower() in PDF_FILES:
                 try:
@@ -100,16 +92,11 @@ class Dispatcher:
                     if isSlidePdf:
                         # converter = PDFToPPTXConverter(debug = self.debug)
                         # converter.convert(self.filepath,self.filepath.with_suffix('.pptx'))
-                        # pdf_to_pptx_final(pdf_path=self.filepath, pptx_path=self.filepath.with_suffix('.pptx'), mode="screen")
-
-                        self._convert_pdf_to_pptx_libreoffice()
+                        pdf_to_pptx_final(pdf_path=self.filepath, pptx_path=self.filepath.with_suffix('.pptx'), mode="screen")
                         self.filepath = self.filepath.with_suffix('.pptx')
                         return PptxExtractor(filepath = self.filepath, waspdf = True, fileid = self.dafileid, debug = self.debug, analyze_images = self.analyze_images)
                     else:
-                        # self.pdf_to_docx(calledforSow = True)
-
-                        
-                        self._convert_pdf_to_docx_libreoffice()
+                        self.pdf_to_docx(calledforSow = True)
                         return DocumentExtractor(filepath = self.filepath.with_suffix('.docx'), waspdf = True, fileid = self.dafileid, debug = self.debug, analyze_images = self.analyze_images)
                     # self._covert_pdf_to_docx()
                     # logger.info(f"✅Pdf converted to docx: {self.filepath.with_suffix('.docx')}")
@@ -125,28 +112,38 @@ class Dispatcher:
             raise e
         except Exception as e:
             raise UnExpectedError(error = e)
-        
+
     def getExtractor(self):
         """Read content from different file types"""
         try:
-            # Convert legacy formats to modern equivalents before routing
-            if self.filepath.suffix.lower() == '.docm':
-                converter = DocConverter(self.filepath, self.debug)
-                converter.convert_file()
-                self.filepath = self.filepath.with_suffix('.docx')
-            elif self.filepath.suffix.lower() == '.doc':
+            #Convert non-readable file formats to latest file formats.
+            if self.filepath.suffix.lower() in ('.doc','.docm','.dot','.rtf'):
                 if not self.filepath.with_suffix('.docx').exists():
-                    self._convert_doc_to_docx_libreoffice()
+                    try:
+                        self._convert_doc_to_docx_libreoffice()
+                    except Exception as e:
+                        logger.warning(f"Failed to convert doc to docx using LibreOffice. Error: {e}", exc_info=True)
+                        converter = DocConverter(self.filepath,self.debug)
+                        converter.convert_file()
                 self.filepath = self.filepath.with_suffix('.docx')
-            elif self.filepath.suffix.lower() == '.ppt':
-                if not self.filepath.with_suffix('.pptx').exists():
-                    self._convert_ppt_to_pptx_libreoffice()
-                self.filepath = self.filepath.with_suffix('.pptx')
-            elif self.filepath.suffix.lower() == '.xls':
-                if not self.filepath.with_suffix('.xlsx').exists():
-                    self._convert_xls_to_xlsx_libreoffice()
-                self.filepath = self.filepath.with_suffix('.xlsx')
 
+            elif self.filepath.suffix.lower() in ('.potx','.ppt','.pot','.pps'):
+                if not self.filepath.with_suffix('.pptx').exists():
+                    try:
+                        self._convert_ppt_to_pptx_libreoffice()
+                        self.filepath = self.filepath.with_suffix('.pptx')
+                    except Exception as e:
+                        logger.warning(f"Failed to convert ppt to pptx using LibreOffice. Error: {e}", exc_info=True)
+
+            elif self.filepath.suffix.lower() in ('.xls', '.xlt', '.csv'):
+                if not self.filepath.with_suffix('.xlsx').exists():
+                    try:
+                        self._convert_xls_to_xlsx_libreoffice()
+                        self.filepath = self.filepath.with_suffix('.xlsx')
+                    except Exception as e:
+                        logger.warning(f"Failed to convert xls to xlsx using LibreOffice. Error: {e}", exc_info=True)
+
+            #return the correct extractor object
             if self.filepath.suffix.lower() in DOC_FILES:
                 return DocumentExtractor(filepath = self.filepath, fileid = self.dafileid, debug = self.debug, analyze_images = self.analyze_images)
             
@@ -159,16 +156,24 @@ class Dispatcher:
                     logger.info(f"isSlidePdf: {isSlidePdf}, Score: {score}")
                     if isSlidePdf:
                         if not self.filepath.with_suffix('.pptx').exists():
-                            # converter = PDFToPPTXConverter(debug=self.debug)
-                            # converter.convert(self.filepath,self.filepath.with_suffix('.pptx'))
-                            # pdf_to_pptx_final(pdf_path=self.filepath, pptx_path=self.filepath.with_suffix('.pptx'), mode="screen")
-                            self._convert_pdf_to_pptx_libreoffice()
+                            try:
+                                #try converting pdf using libre office
+                                self._convert_pdf_to_pptx_libreoffice()
+                            except Exception as e:
+                                logger.warning(f"Failed to convert pdf to pptx using LibreOffice. Error: {e}", exc_info=True)
+                                #fallback to old method
+                                pdf_to_pptx_final(pdf_path=self.filepath, pptx_path=self.filepath.with_suffix('.pptx'), mode="screen")
                         self.filepath = self.filepath.with_suffix('.pptx')
                         return PptxExtractor(filepath = self.filepath, waspdf = True, fileid = self.dafileid, debug = self.debug, analyze_images = self.analyze_images)
                     else:
                         if not self.filepath.with_suffix('.docx').exists():
-                            # self.pdf_to_docx()
-                            self._convert_pdf_to_docx_libreoffice()
+                            try:
+                                #try converting pdf using libre office
+                                self._convert_pdf_to_docx_libreoffice()
+                            except Exception as e:
+                                logger.warning(f"Failed to convert pdf to docx using LibreOffice. Error: {e}", exc_info=True)
+                                #fallback to old method
+                                self.pdf_to_docx()
                         self.filepath = self.filepath.with_suffix('.docx')
                         return DocumentExtractor(filepath = self.filepath.with_suffix('.docx'), waspdf = True, fileid = self.dafileid, debug = self.debug, analyze_images = self.analyze_images)
                 except Exception as e:
@@ -184,8 +189,7 @@ class Dispatcher:
         except CustomBaseException as e:
             raise e
         except Exception as e:
-            raise UnExpectedError(error = e)
-        
+            raise UnExpectedError(error = e)    
         
     def getRedactors(self,outdir):
         self.outfilepath = Path(os.path.join(outdir,self.filepath.name))

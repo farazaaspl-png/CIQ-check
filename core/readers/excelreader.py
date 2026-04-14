@@ -882,22 +882,28 @@ class ExcelExtractor:
                 istablerow = True
                 tabledata = []
             elif line == '--- TABLE END ---':
-                df = self._table_parser(tabledata)
-                if df is None:
-                    istablerow = False
-                    continue
-                if df.shape[0]>0:
-                    records = df.drop_duplicates().to_dict('records')
-                    
-                    for idx, rec in enumerate(records):
-                        clean_dict = {k: v for k, v in rec.items() if v is not None and v != '' and v != []}
-                        records[idx] = clean_dict
-                    
-                    if get_ocr:
-                        listoftabledata.append(records)
-                    self.fileContent += '--- TABLE START ---\n'
-                    self.fileContent += '\n'.join([str(record) for record in records]) + '\n'
-                    self.fileContent += '--- TABLE END ---\n'
+                try:
+                    df = self._table_parser(tabledata)
+                    if df is None:
+                        istablerow = False
+                        continue
+                    if df.shape[0] > 0:
+                        records = df.drop_duplicates().to_dict('records')
+                        
+                        for idx, rec in enumerate(records):
+                            clean_dict = {k: v for k, v in rec.items() if v is not None and v != '' and v != []}
+                            records[idx] = clean_dict
+                        
+                        if get_ocr:
+                            listoftabledata.append(records)
+                        self.fileContent += '--- TABLE START ---\n'
+                        self.fileContent += '\n'.join([str(record) for record in records]) + '\n'
+                        self.fileContent += '--- TABLE END ---\n'
+                except Exception as e:
+                    for table_line in tabledata:
+                        if table_line[:4] in ['HDR:', 'VAL:']:
+                            table_line = '~'.join(list(dict.fromkeys(table_line[4:].split('~')))).strip('~ ')
+                        self.fileContent += table_line + '\n'
                 istablerow = False
             else:
                if istablerow and len(line.strip())>0:

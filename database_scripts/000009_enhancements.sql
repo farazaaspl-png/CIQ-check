@@ -43,7 +43,10 @@ select 'FUZZ_RATIO_SIMILARITY_THRESHOLD' name,'70' val,'Threshold for Template I
 select 'GRADING_TABLE' name,'tgrading' val,'database objects' comment union all
 select 'VECTOR_SEARCH_SIMILARITY_THRESHOLD' name,'0.7' val,'Threshold for Template Identification' comment union all
 select 'SHORT_LABEL_VIEW' name,'vwtoberedacted' val,'database objects' comment union all
-select 'CONSULTANT_FEEDBACK_TABLE' name,'tconsultantfeedback' val,'database objects' comment) sqry
+select 'CONSULTANT_FEEDBACK_TABLE' name,'tconsultantfeedback' val,'database objects' comment union all
+select 'CHUNK_SIZE_SPELLCHECK' name,'15000' val,'gtl flow' comment union all
+select 'CORR_ID_GRADING' name,'3f9c2d7a-6b81-4c5e-9a12-8d4e7f2b1c90' val,'Gen Ai' comment union all
+select 'OVER_LAP_SIZE_SPELLCHECK' name,'100' val,'gtl flow' comment) sqry
 where not exists(select 1 from ciq_fssit.config cfg where cfg.name=sqry.name);
 
 ALTER TABLE ciq_fssit.tchange_document ALTER COLUMN newvalue TYPE text;
@@ -161,3 +164,94 @@ CREATE TABLE ciq_fssit.tconsultantfeedback (
 	created_date timestamptz DEFAULT now() NULL,
 	CONSTRAINT tconsultantfeedback_feedback_check CHECK (((feedback)::text = ANY ((ARRAY['positive'::character varying, 'negative'::character varying])::text[])))
 );
+
+CREATE OR REPLACE VIEW ciq_cssit.vwdocuments
+AS SELECT sqry.requestid,
+    sqry.fuuid,
+    sqry.daoriginal_fileid,
+    sqry.dafileid,
+    sqry.ipid,
+    sqry.projectid,
+    sqry.filename,
+    sqry.title,
+    sqry.description,
+    sqry.gtl_synopsis,
+    sqry.uploadedby author,
+    sqry.dtpm_phase,
+    sqry.document_type,
+    sqry.ip_type,
+    sqry.practice,
+    sqry.offerfamily,
+    sqry.offer,
+    sqry.doc_off_relevance_score,
+    sqry.gtl_email,
+    sqry.usage_count,
+    sqry.status,
+    reccnt.acceptance * 100::numeric AS acceptance,
+    sqry.redacted_items_dafileid,
+    sqry.waspdf,
+    sqry.created_by,
+    sqry.updated_by,
+    sqry.created_date,
+    sqry.updated_date,
+    sqry.offersimilarity,
+    sqry.type,
+    sqry.url,
+    sqry.mathcingdafileid,
+    sqry.similarity
+   FROM ( SELECT doc.requestid,
+            doc.fuuid,
+            doc.daoriginal_fileid,
+            COALESCE(doc.dafileid, doc.daoriginal_fileid) AS dafileid,
+            doc.ipid,
+            doc.projectid,
+            doc.filename,
+            doc.title,
+            doc.description,
+            doc.gtl_synopsis,
+            doc.author,
+            COALESCE(mp.dtpm_phase, doc.dtpm_phase) AS dtpm_phase,
+            doc.document_type,
+            doc.ip_type,
+            ofd.practice,
+            ofd.offerfamily,
+            COALESCE(ofd.offer, doc.offer::text) AS offer,
+            doc.relevance_score AS doc_off_relevance_score,
+            ofd.gtl AS gtl_email,
+            doc.usage_count,
+            doc.status,
+            doc.redacted_items_dafileid,
+            doc.waspdf,
+            doc.type,
+            doc.url,
+            doc.uploadedby,
+            doc.created_by,
+            doc.updated_by,
+            to_char(doc.created_date, 'YYYY-MM-DD HH24:MI:SS'::text) AS created_date,
+            to_char(doc.updated_date, 'YYYY-MM-DD HH24:MI:SS'::text) AS updated_date,
+            similarity(doc.offer::text, ofd.offer) AS offersimilarity,
+            doc.similarity,
+            doc.mathcingdafileid,
+            row_number() OVER (PARTITION BY doc.requestid, doc.daoriginal_fileid, doc.offer ORDER BY (similarity(doc.offer::text, ofd.offer)) DESC) AS rnk
+           FROM ciq_cssit.tdocument doc
+             JOIN ( SELECT ofr.practice,
+                    ofr.offerfamily,
+                    ofr.offer,
+                    ofr.gtl
+                   FROM ciq_cssit.vwofferfamilydata ofr
+                UNION ALL
+                 SELECT 'UnDefined'::text AS text,
+                    'UnDefined'::text AS text,
+                    'UnDefined'::text AS text,
+                    NULL::character varying AS gtl) ofd ON similarity(COALESCE(doc.offer, 'UnDefined'::character varying)::text, ofd.offer) > 0.75::double precision
+             LEFT JOIN ciq_cssit.tdtpm_mapping mp ON TRIM(BOTH FROM lower(doc.ip_type::text)) = TRIM(BOTH FROM lower(mp.ip_type::text))) sqry
+     LEFT JOIN ( SELECT rec.templateid,
+            NULLIF(sum(
+                CASE
+                    WHEN rec.status::text = 'ACCEPTED'::text THEN 1.0
+                    ELSE 0.0::integer::numeric
+                END), 0.0) / count(1)::numeric AS acceptance
+           FROM ciq_cssit.trecommendation rec
+          WHERE rec.status::text <> 'GENERATED'::text AND rec.method::text = 'offerbased'::text
+          GROUP BY rec.templateid) reccnt ON reccnt.templateid = COALESCE(sqry.dafileid, sqry.daoriginal_fileid)
+  WHERE sqry.rnk = 1;

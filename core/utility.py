@@ -212,14 +212,18 @@ def get_custom_logger(name):
     logger.setLevel(logging.INFO)
     logger.handlers.clear()
     # print(logger.handlers)
+    # Add filter first before any handlers
+    logger.addFilter(ContextFilter())
     if not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
         handler = logging.StreamHandler()
         # formatter = logging.Formatter('[%(levelname)s|%(name)s|L%(lineno)d] %(asctime)s | %(message)s',datefmt='%Y-%m-%dT%H:%M:%S%z')
         # formatter = jsonlogger.JsonFormatter("%(levelname)s %(name)s %(lineno)d %(asctime)s %(message)s",datefmt='%Y-%m-%dT%H:%M:%S%z')
-        formatter = jsonlogger.JsonFormatter("%(session_id)s %(request_id)s %(levelname)s %(name)s %(lineno)d %(asctime)s %(message)s",datefmt='%Y-%m-%dT%H:%M:%S%z')
+        formatter = jsonlogger.JsonFormatter("%(session_id)s %(request_id)s %(levelname)s %(name)s %(lineno)d %(asctime)s %(message)s",
+                                             datefmt='%Y-%m-%dT%H:%M:%S%z',
+                                             defaults={"session_id": "-", "request_id": "-"})
 
         handler.setFormatter(formatter)
-        logger.addFilter(ContextFilter())
+        # logger.addFilter(ContextFilter())
         add_session_file_handler(logger)
 
         logger.addHandler(handler)
@@ -261,7 +265,8 @@ def count_tokens(text: str, results: str= '') -> int:
 #     # Preprocess the image
 #     inputs = feature_extractor(images=image, return_tensors="pt")
     
-    return inputs
+    # return inputs
+
 def count_vision_tokens(text: str,image_url: str, results: str) -> int:
     # Load the image from the URL
     image_data = image_url.split(",")[1]
