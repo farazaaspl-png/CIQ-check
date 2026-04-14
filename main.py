@@ -45,7 +45,7 @@ def main():
     # Initialize consumer
     listener = KafkaMessageListener(
         bootstrap_servers=Config.KAFKA_BOOTSTRAP_SERVERS_INPUT,
-        group_id=Config.KAFKA_GROUP_ID,
+        group_id=Config.KAFKA_GROUP_ID+"-"+Config.SERVICE_TYPE,
         topics=Config.INPUT_TOPICS,
         auto_offset_reset=Config.AUTO_OFFSET_RESET,
         enable_auto_commit=Config.ENABLE_AUTO_COMMIT,
@@ -56,25 +56,23 @@ def main():
     )
     
     # Register business logic handlers
-    #fast running process
-    listener.register_handler(
-        Consultant_Recommendation(producer, Config.OUTPUT_TOPIC, Config.DEBUG)
-    )
-    listener.register_handler(
-        RecommendationFeedbackHandler(producer, Config.OUTPUT_TOPIC, Config.DEBUG)
-    )
-    listener.register_handler(
-        DeepSearchHandler(producer, Config.OUTPUT_TOPIC, Config.DEBUG)
-    )
-
-    #slow running process
-    listener.register_handler(
-        GTLFeedbackHandler(producer, Config.OUTPUT_TOPIC, Config.DEBUG)
-    )
-    listener.register_handler(
-        Gtl_Recommendation(producer, Config.OUTPUT_TOPIC, Config.DEBUG)
-    )
-
+    if Config.SERVICE_TYPE == "FAST":
+        listener.register_handler(
+            Consultant_Recommendation(producer, Config.OUTPUT_TOPIC, Config.DEBUG)
+        )
+        listener.register_handler(
+            RecommendationFeedbackHandler(producer, Config.OUTPUT_TOPIC, Config.DEBUG)
+        )
+        listener.register_handler(
+            DeepSearchHandler(producer, Config.OUTPUT_TOPIC, Config.DEBUG)
+        )
+    else:
+        listener.register_handler(
+            GTLFeedbackHandler(producer, Config.OUTPUT_TOPIC, Config.DEBUG)
+        )
+        listener.register_handler(
+            Gtl_Recommendation(producer, Config.OUTPUT_TOPIC, Config.DEBUG)
+        )
     
     
     # Start listening
