@@ -13,7 +13,7 @@ insert into ciq_fssit.config (name,val,comment,isactive) values('similarityscore
 insert into ciq_fssit.config (name,val,comment,isactive) values('acceptance_wt',0.20,'search',True);
 update ciq_fssit.trecommendation set method = 'offerbased' where method is null;
 update ciq_fssit.trecommendation set sow_off_relevance_score = sow_off_relevance_score*100, similarityscore =similarityscore * 100;
-update ciq_cssit.config set val='nomic-embed-text-v1' where name='EMBEDDING_MODEL';
+update ciq_fssit.config set val='nomic-embed-text-v1' where name='EMBEDDING_MODEL';
 commit;
 
 drop view ciq_fssit.vwrecommendations; 

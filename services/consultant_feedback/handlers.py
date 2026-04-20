@@ -98,7 +98,8 @@ class RecommendationFeedbackHandler(MessageHandler):
                     'dafileid': payload.get('daFileId'),
                     'feedback': payload.get('feedback'),  
                     'message': payload.get('message'),
-                    'usercomments': payload.get('usercomments') if payload.get('message') == 'others' else None
+                    'usercomments': payload.get('usercomments') if payload.get('message', '').lower() == 'other' else None
+                    # 'usercomments': payload.get('usercomments') if payload.get('message', '').lower() == 'other' else None
                 }
                 db.insert_consultant_feedback(**consultant_feedback)
                 logger.info(f"Consultant feedback recorded for requestid: {header.get('requestId')}")

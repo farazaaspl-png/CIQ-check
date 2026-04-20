@@ -3,7 +3,7 @@ INSERT INTO ciq_fssit.tprocess_ips_rule(event_type, event_sub_type, file_suffix,
 ALTER TABLE ciq_fssit.tchange_document ALTER COLUMN newvalue TYPE text;
 ALTER TABLE ciq_fssit.tchange_document ALTER COLUMN oldvalue TYPE text;
 ALTER TABLE ciq_fssit.tdeep_search_logs ADD COLUMN is_app Boolean DEFAULT false;
-INSERT INTO ciq_cssit.tredaction_exclusion("exclude") VALUES('Dell Team');
+INSERT INTO ciq_fssit.tredaction_exclusion("exclude") VALUES('Dell Team');
 INSERT INTO ciq_fssit.tlabel_lookup (category, "label") VALUES('vendor project name', 'Vendor');
 INSERT INTO ciq_fssit.tlabel_lookup (category, "label") VALUES('dell internal person name', 'Internal');
 INSERT INTO ciq_fssit.tlabel_lookup (category, "label") VALUES('customer team name', 'Customer');
@@ -107,14 +107,14 @@ drop view if exists ciq_fssit.vwdocuments;
 
 ALTER TABLE ciq_fssit.tdocument DROP COLUMN if exists "type";
 ALTER TABLE ciq_fssit.tdocument DROP COLUMN if exists "url";
-ALTER TABLE ciq_cssit.tdocument DROP COLUMN if exists mathcingdafileid;
-ALTER TABLE ciq_cssit.tdocument DROP COLUMN if exists similarity;
+ALTER TABLE ciq_fssit.tdocument DROP COLUMN if exists mathcingdafileid;
+ALTER TABLE ciq_fssit.tdocument DROP COLUMN if exists similarity;
 
 
 ALTER TABLE ciq_fssit.tdocument ADD "type" varchar(50) NULL;
 ALTER TABLE ciq_fssit.tdocument ADD "url" varchar(2100) NULL;
-ALTER TABLE ciq_cssit.tdocument ADD mathcingdafileid uuid NULL;
-ALTER TABLE ciq_cssit.tdocument ADD similarity float8 NULL;
+ALTER TABLE ciq_fssit.tdocument ADD mathcingdafileid uuid NULL;
+ALTER TABLE ciq_fssit.tdocument ADD similarity float8 NULL;
 
 
 CREATE OR REPLACE VIEW ciq_fssit.vwdocuments

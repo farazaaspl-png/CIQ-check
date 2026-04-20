@@ -102,7 +102,7 @@ class TDocument(Base):
     status = Column(String(100), nullable=True)
     type = Column(String(50))
     url = Column(String(2100))
-    mathcingdafileid = Column(UUID)
+    matchingdafileid = Column(UUID)
     similarity = Column(Float)
     uploadedby = Column(String(100), nullable=True)
     created_by = Column(String(225), nullable=True)
@@ -1194,10 +1194,13 @@ class DatabaseManager:
 
                 # ── Process each section in message dict ──────────────
                 for section_key, body in update_message.items():
-                    block_header = f"<br><b>{section_key}:</b>"
+                    if section_key=='-':
+                        block_header = ""
+                    else:
+                        block_header = f"<b>{section_key}:</b>"
 
                     # Strip previous block for re-run safety
-                    if block_header in existing_synopsis:
+                    if block_header and block_header in existing_synopsis:
                         existing_synopsis = existing_synopsis.split(block_header)[0]
 
                     # Append new block

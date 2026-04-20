@@ -32,8 +32,6 @@ class DocumentIdentifier:
         self.table_name       = self.cfg.DOCUMENT_CONTENT_STORE
         self.cosine_threshold    = self.cfg.VECTOR_SEARCH_SIMILARITY_THRESHOLD
         self.fuzzy_threshold    = self.cfg.FUZZ_RATIO_SIMILARITY_THRESHOLD
-        self.chunk_size       = self.cfg.VECTOR_CHUNK_SIZE
-        self.chunk_overlap    = self.cfg.VECTOR_OVER_LAP_SIZE
         # self.min_coverage     = min_coverage
         # self.embed_batch_size = embed_batch_size
         # self.top_k_per_chunk  = top_k_per_chunk
@@ -70,11 +68,6 @@ class DocumentIdentifier:
     #     # logger.info(f"Split into {len(chunks)} chunks")
     #     # return chunks
     #     return file_content
-
-    def _chunk_file(self,file_content :str):
-        chunks = split_text(file_content,chunk_size= self.chunk_size,chunk_overlap = self.chunk_overlap)
-        logger.info(f"Split into {len(chunks)} chunks")
-        return chunks
 
     def _embed_chunks(self, chunks: List[str]) -> List:
         """Embed chunks in batches respecting API batch size limit."""
@@ -144,7 +137,7 @@ class DocumentIdentifier:
         similarity_score = fuzz.ratio(input_chunk_text.lower().strip(),repo_chunk_text.lower().strip())
 
         if similarity_score < threshold :
-            logger.debug(f"Revalidation FAILED: "f"score={similarity_score:.2f} < "f"threshold={threshold * 100:.2f}")
+            logger.debug(f"Revalidation FAILED: "f"score={similarity_score:.2f} < "f"threshold={threshold}")
             return None
 
         logger.debug(f"Revalidation PASSED: score={similarity_score:.2f}")
@@ -188,6 +181,7 @@ class DocumentIdentifier:
 
             raw_results.append({
                 "input_chunk_idx" : chunk_idx,
+                "tot_chunks"      : metadata.get("tot_chunks", 0),
                 "dafileid"        : str(metadata.get("dafileid")),
                 "filename"        : metadata.get("filename", ""),
                 "score"           : best_score,
@@ -207,12 +201,12 @@ class DocumentIdentifier:
     def _search_and_rank_files(self) -> dict:
         """Main method to run Template Identification pipeline."""
 
-        min_coverage = 0.70
+        min_coverage = 0.50
         if self.iptypes:
             self.iptypes = [ip for ip in self.iptypes if ip is not None] or None
 
-
-        chunks = self._chunk_file(self.textContent)
+        chunks = split_text(self.textContent,chunk_size= self.cfg.VECTOR_CHUNK_SIZE,chunk_overlap = self.cfg.VECTOR_OVER_LAP_SIZE)
+        logger.info(f"Split into {len(chunks)} chunks")
 
         total_input_chunks = len(chunks)
         logger.info(f"Total input chunks: {total_input_chunks}")
@@ -237,16 +231,25 @@ class DocumentIdentifier:
         # Aggregate
         df_out = df_raw.groupby('dafileid').agg(
             filename       = pd.NamedAgg(column="filename",        aggfunc="first"),
+            tot_chunks     = pd.NamedAgg(column="tot_chunks",        aggfunc="max"),
             chunks_matched = pd.NamedAgg(column="input_chunk_idx", aggfunc="count"),
             max_score      = pd.NamedAgg(column="score",           aggfunc="max"),
             avg_score      = pd.NamedAgg(column="score",           aggfunc="mean"),
         ).reset_index().sort_values(['chunks_matched', 'max_score'],ascending = [False, False])
 
-        df_out['coverage_pct'] = (df_out['chunks_matched'] / total_input_chunks) * 100.0
+        df_out['coverage_pct'] = (df_out['chunks_matched'] / df_out['tot_chunks']) * 100.0
 
         # Min coverage is — 70%
-        min_chunks_required = total_input_chunks * min_coverage
-        df_out = df_out[df_out['chunks_matched'] >= min_chunks_required]
+        # min_chunks_required = total_input_chunks * min_coverage
+        # df_out = df_out[df_out['chunks_matched'] >= min_chunks_required]
+        logger.info(f"Template with Max matching chunks -> "
+            f"dafileid: {df_out.iloc[0]['dafileid']} | "
+            f"filename: {df_out.iloc[0]['filename']} | "
+            f"chunks_matched: {df_out.iloc[0]['chunks_matched']}/{df_out.iloc[0]['tot_chunks']} |"
+            f"coverage_pct: {df_out.iloc[0]['coverage_pct']:.2f}%|"
+            f"Total Input Chunks: {total_input_chunks}"
+            )
+        df_out = df_out[df_out['coverage_pct'] >= min_coverage * 100]
 
         if df_out.empty:
             logger.warning(f"No document met min_coverage="f"{min_coverage * 100:.0f}%")
@@ -257,8 +260,9 @@ class DocumentIdentifier:
         logger.info(f"Template Identification Complete -> "
             f"dafileid: {df_out.iloc[0]['dafileid']} | "
             f"filename: {df_out.iloc[0]['filename']} | "
-            f"chunks_matched: {df_out.iloc[0]['chunks_matched']}"
-            f"/{total_input_chunks}"
+            f"chunks_matched: {df_out.iloc[0]['chunks_matched']}/{df_out.iloc[0]['tot_chunks']} |"
+            f"coverage_pct: {df_out.iloc[0]['coverage_pct']:.2f}%|"
+            f"Total Input Chunks: {total_input_chunks}"
         )
 
         # return df_out[['dafileid', 'filename', 'chunks_matched', 'coverage_pct']]

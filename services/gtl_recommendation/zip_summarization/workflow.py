@@ -99,8 +99,8 @@ class WorkflowStage(ABC):
             return response
         
     def send_message(self, context: GlobalContext, producer):
-        # ── use context.header/payload, not context.state ──
-        stgno = self.stageno if self.stageno<context.state['stage_cnt'] else self.stageno - (5-context.state['stage_cnt'])
+        # ── use context.header/payload, not context.args ──
+        stgno = self.stageno if self.stageno<context.args['stage_cnt'] else self.stageno - (5-context.args['stage_cnt'])
         requestid = context.header['requestId']
         fuuid     = context.payload['uuid']
         dafileid  = context.payload['daFileId']
@@ -121,7 +121,7 @@ class WorkflowStage(ABC):
         df[uuid_columns] = df[uuid_columns].fillna('').astype(str)
         df = df.drop('requestid', axis=1)
         # Handle UnDefined valuess
-        if stgno < context.state['stage_cnt']:
+        if stgno < context.args['stage_cnt']:
             df = df.replace('UnDefined', '')
 
         response_payload = df.to_dict(orient='records')[0]
@@ -132,10 +132,12 @@ class WorkflowStage(ABC):
         logger.info(f"{fuuid}- Payload generated after stage: {self.name}")
         response_headers["eventSubType"] = response_headers["eventSubType"] if response_payload['status']=='Processed' else 'STAGE_STATUS'
         try:
-            producer.send_message(self.cfg.OUTPUT_TOPIC, response_headers, response_payload)
+            if response_payload['status']=='Processed':
+                producer.send_message(self.cfg.OUTPUT_TOPIC, response_headers, response_payload)
+ 
         except Exception as e:
             logger.error(f"{fuuid}- Error sending message: {e}", exc_info=True)
-            if not stgno < context.state['stage_cnt']:
+            if not stgno < context.args['stage_cnt']:
                 raise
 
 # ----------------------------
@@ -534,7 +536,7 @@ class WorkflowOrchestrator:
                 if self.producer:
                     stage.send_message(context, self.producer)
                     logger.info(f"{fuuid}- Payload generated after stage: {stage.name}")
-                    message_tasks.append(task)
+                    # message_tasks.append(task)
 
                 last_stage = stage
             except Exception as e:

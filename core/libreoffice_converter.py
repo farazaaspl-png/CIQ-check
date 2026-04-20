@@ -93,6 +93,9 @@ class LibreOfficeConverter:
 
         try:
             self._run(command)
+            files_in_parent = list(self.filepath.parent.iterdir())
+            logger.info(f"{self.fileid}-Files in directory {self.filepath.parent}: {[f.name for f in files_in_parent]}")
+
             converted_path = self.filepath.with_suffix('.docx')
             logger.info(f"{self.fileid}-Successfully converted to {base_name}.docx")
             if upload:
@@ -118,6 +121,9 @@ class LibreOfficeConverter:
 
         try:
             self._run(command)
+            files_in_parent = list(self.filepath.parent.iterdir())
+            logger.info(f"{self.fileid}-Files in directory {self.filepath.parent}: {[f.name for f in files_in_parent]}")
+
             converted_path = self.filepath.with_suffix('.pptx')
             logger.info(f"{self.fileid}-Successfully converted to {base_name}.pptx")
             if upload:
@@ -152,6 +158,9 @@ class LibreOfficeConverter:
         try:
             self._run_steps([command_step1, command_step2])
             logger.info(f"{self.fileid}-Converted {base_name}.xls to XLSX via ODS")
+
+            files_in_parent = list(self.filepath.parent.iterdir())
+            logger.info(f"{self.fileid}-Files in directory {self.filepath.parent}: {[f.name for f in files_in_parent]}")
 
             if ods_path.exists():
                 os.remove(ods_path)
@@ -195,6 +204,9 @@ class LibreOfficeConverter:
             self._run_steps([command_step1, command_step2])
             logger.info(f"{self.fileid}-Converted {base_name}.pdf to PPTX via PPT")
 
+            files_in_parent = list(self.filepath.parent.iterdir())
+            logger.info(f"{self.fileid}-Files in directory {self.filepath.parent}: {[f.name for f in files_in_parent]}")
+
             ppt_intermediate = self.filepath.with_suffix('.ppt')
             if ppt_intermediate.exists():
                 os.remove(ppt_intermediate)
@@ -236,11 +248,16 @@ class LibreOfficeConverter:
             self._run_steps([command_step1, command_step2])
             logger.info(f"{self.fileid}-Converted {base_name}.pdf to DOCX via DOC")
 
+            files_in_parent = list(self.filepath.parent.iterdir())
+            logger.info(f"{self.fileid}-Files in directory {self.filepath.parent}: {[f.name for f in files_in_parent]}")
+
             doc_intermediate = self.filepath.with_suffix('.doc')
             if doc_intermediate.exists():
                 os.remove(doc_intermediate)
 
             converted_path = self.filepath.with_suffix('.docx')
+            # if converted_path.exists():
+
             logger.info(f"{self.fileid}-Successfully converted to {base_name}.docx")
             if upload:
                 self._upload_to_s3(converted_path)

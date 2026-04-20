@@ -10,7 +10,7 @@ from core.exceptions import FileFormatNotSupported
 from core.utility import get_custom_logger
 logger = get_custom_logger(__name__)
 
-def remove_keys(pdict: dict, keylist: list = ['createdBy', 'updatedBy', 'createdOn', 'updatedOn', 'uploadedBy', 'leadTime', 'processingTime', 'status']):
+def remove_keys(pdict: dict, keylist: list = ['createdBy', 'updatedBy', 'createdOn', 'updatedOn', 'leadTime', 'processingTime', 'status']):
     for key in keylist:    
         if key in pdict: pdict.pop(key, None)
 
@@ -100,16 +100,16 @@ def main(header, payload,producer=None):
         cnt_stage = sum(value for value in enabled_stages.values())
         logger.info(f"{fuuid} - inserted document state")
 
-        if event_type == "UPLOAD_NEW_FILE":
-            isupd = db.update_document(where_clause={'fuuid': fuuid, 'dafileid': payload.get('oldDaFileId'),'status':'Sent For Review'},
-                                       update_values={'status': 'REJECTED'} )
-            if isupd:
-                logger.info(f"{fuuid} - Status updated for old dafileid {payload.get('oldDaFileId')} to REJECTED")
-
-        isupd = db.update_document(where_clause={'fuuid': fuuid, 'daoriginal_fileid': dafileid,'status':'Sent For Review'},
-                                   update_values={'status': 'Rejected'}) 
+        # if event_type == "UPLOAD_NEW_FILE":
+        isupd = db.update_document(where_clause={'fuuid': fuuid, 'dafileid': dafileid},
+                                   update_values={'status': 'REJECTED'} )
         if isupd:
-            logger.info(f"{fuuid} - Marked previous sent file as rejected")
+            logger.info(f"{fuuid} - Status updated for old dafileid {dafileid} to REJECTED")
+        else:
+            isupd = db.update_document(where_clause={'fuuid': fuuid, 'daoriginal_fileid': dafileid},
+                                   update_values={'status': 'REJECTED'}) 
+            if isupd:
+                logger.info(f"{fuuid} - Marked previous sent file as rejected")
         
         rowdict = {'requestid': requestid,
                    'fuuid' : fuuid,

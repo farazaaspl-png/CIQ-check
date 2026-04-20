@@ -153,7 +153,8 @@ class KafkaMessageListener:
                 sasl_mechanism=self.sasl_mechanism,
                 sasl_plain_username=self.sasl_plain_username,
                 sasl_plain_password=self.sasl_plain_password,
-                value_deserializer=lambda v: json.loads(v.decode("utf-8"))
+                value_deserializer=lambda v: json.loads(v.decode("utf-8")),
+                max_poll_interval_ms=1800000
             )
             
             logger.info(f"Connected to Kafka. Listening to topics: {self.topics}")
@@ -168,7 +169,7 @@ class KafkaMessageListener:
                     header, data = self._parse_message(message.value)
                     self.consumer.commit()
                     self._route_message(header, data)
-                    logger.warning(f"MESSAGE PROCESSED :: header: {header}, payload: {data}")
+                    logger.info(f"MESSAGE PROCESSED :: header: {header}, payload: {data}")
                 except Exception as e:
                 #     self.consumer.commit(offset=message.offset)
                     logger.error(f"Error processing message: {e}",exc_info=True)

@@ -123,3 +123,4 @@ ValidationOfferClassification.py
 ValidationSOWOfferClassification.py
 zip_summary.py
 requirements.in
+AdhocScripts/SendKafkaMessages.py

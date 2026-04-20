@@ -29,7 +29,7 @@ from services.gtl_recommendation.redaction.image.RedactorDoc import DocRedactor 
 from services.gtl_recommendation.redaction.image.Redactorxlsx import ExcelRedactor as ImageExcelRedactor
 from services.gtl_recommendation.redaction.image.RedactorPptx import PPTXRedactor as ImagePptxRedactor
 # from services.gtl_recommendation.grading.spell_check_prompts import build_docx_spellcheck_prompt, build_xlsx_spellcheck_prompt, build_pptx_spellcheck_prompt
-from services.gtl_recommendation.grading import spell_check_prompts as scp
+# from services.gtl_recommendation.grading import spell_check_prompts as scp
 from services.gtl_recommendation.grading import content_check_prompts as ccp
 
 # from services.gtl_recommendation.grading.Spellchecker.DocSpellchecker import DocSpellchecker
@@ -54,9 +54,9 @@ logging.getLogger('pdf2image').setLevel(logging.ERROR)
 DOC_FILES = ['.docx','.doc','.docm','.dot','.rtf']
 PDF_FILES = ['.pdf']
 PPT_FILES = ['.pptx', '.potx','.ppt','.pot','.pps']
-FLAT_FILES = ['.csv','.txt','.psv','.json', '.htm', '.tm7', '.html','.log']
+FLAT_FILES = ['.csv','.txt','.psv','.json', '.htm', '.tm7','.log']
 # PPT_FILES = ['.pptx','.ppt']
-EXCEL_FILES = ['.xlsx', '.xls', '.xlt', '.csv']#, '.xlsm', '.xlsb']
+EXCEL_FILES = ['.xlsx', '.xls', '.xlt', '.csv', '.xlsm', '.xlsb']
 # EXCEL_FILES = []
 
 SUPPORTED_FILES = DOC_FILES + PDF_FILES + PPT_FILES + EXCEL_FILES + FLAT_FILES
@@ -135,7 +135,7 @@ class Dispatcher:
                     except Exception as e:
                         logger.warning(f"Failed to convert ppt to pptx using LibreOffice. Error: {e}", exc_info=True)
 
-            elif self.filepath.suffix.lower() in ('.xls', '.xlt', '.csv'):
+            elif self.filepath.suffix.lower() in ('.xls', '.xlt', '.csv','.xlsm', '.xlsb'):
                 if not self.filepath.with_suffix('.xlsx').exists():
                     try:
                         self._convert_xls_to_xlsx_libreoffice()
@@ -159,6 +159,9 @@ class Dispatcher:
                             try:
                                 #try converting pdf using libre office
                                 self._convert_pdf_to_pptx_libreoffice()
+                                self.filepath = self.filepath.with_suffix('.pptx')
+                                if not self.filepath.exists():
+                                    pdf_to_pptx_final(pdf_path=self.filepath, pptx_path=self.filepath.with_suffix('.pptx'), mode="screen")
                             except Exception as e:
                                 logger.warning(f"Failed to convert pdf to pptx using LibreOffice. Error: {e}", exc_info=True)
                                 #fallback to old method
@@ -170,6 +173,9 @@ class Dispatcher:
                             try:
                                 #try converting pdf using libre office
                                 self._convert_pdf_to_docx_libreoffice()
+                                self.filepath = self.filepath.with_suffix('.docx')
+                                if not self.filepath.exists():
+                                    self.pdf_to_docx()
                             except Exception as e:
                                 logger.warning(f"Failed to convert pdf to docx using LibreOffice. Error: {e}", exc_info=True)
                                 #fallback to old method
@@ -266,43 +272,44 @@ class Dispatcher:
         doc.close()
         return good_pages
     
-    def getSpellCheckerPromptBuilder(self):
-        """Get spellchecker prompt builder based on file format"""
-        try:
-            file_extension = self.filepath.suffix.lower()
+    # def getSpellCheckerPromptBuilder(self):
+    #     """Get spellchecker prompt builder based on file format"""
+    #     try:
             
-            # ---------- DOCX ----------
-            if file_extension == '.docx':
-                return scp.build_docx_spellcheck_prompt
-            # ---------- EXCEL ----------
-            elif file_extension == '.xlsx':
-                return scp.build_xlsx_spellcheck_prompt
-            # ---------- PPTX ----------
-            elif file_extension == '.pptx':
-                return scp.build_pptx_spellcheck_prompt
-            # ---------- Not supported ----------
-            else:
-                raise FileFormatNotSupported(fileformat=self.filepath.suffix)
-        except CustomBaseException as e:
-            raise e
-        except Exception as e:
-            logger.error(f"Error in getSpellcheckerPrompt: {e}",exc_info=True)
-            raise UnExpectedError(error = e)
+    #         # ---------- DOCX ----------
+    #         if self.filepath.suffix.lower() in DOC_FILES:
+    #             return scp.build_docx_spellcheck_prompt
+    #         # ---------- EXCEL ----------
+    #         elif self.filepath.suffix.lower() in EXCEL_FILES:
+    #             return scp.build_xlsx_spellcheck_prompt
+    #         # ---------- PPTX ----------
+    #         elif self.filepath.suffix.lower() in PPT_FILES:
+    #             return scp.build_pptx_spellcheck_prompt
+    #         # ---------- Not supported ----------
+    #         else:
+    #             raise FileFormatNotSupported(fileformat=self.filepath.suffix)
+    #     except CustomBaseException as e:
+    #         raise e
+    #     except Exception as e:
+    #         logger.error(f"Error in getSpellcheckerPrompt: {e}",exc_info=True)
+    #         raise UnExpectedError(error = e)
         
     def getContentCheckerPromptBuilder(self):
         """Get contentchecker prompt builder based on file format"""
         try:
-            file_extension = self.filepath.suffix.lower()
             
             # ---------- DOCX ----------
-            if file_extension == '.docx':
+            if self.filepath.suffix.lower() in DOC_FILES:
                 return ccp.build_doc_contentcheck_prompt
             # ---------- EXCEL ----------
-            elif file_extension == '.xlsx':
+            elif self.filepath.suffix.lower() in EXCEL_FILES:
                 return ccp.build_xls_contentcheck_prompt
             # ---------- PPTX ----------
-            elif file_extension == '.pptx':
+            elif self.filepath.suffix.lower() in PPT_FILES:
                 return ccp.build_ppt_contentcheck_prompt
+            # ---------- FLAT FILES ----------
+            elif self.filepath.suffix.lower() in FLAT_FILES:
+                return ccp.build_others_contentcheck_prompt
             # ---------- Not supported ----------
             else:
                 raise FileFormatNotSupported(fileformat=self.filepath.suffix)

@@ -248,8 +248,8 @@ class Classifier:
             self.finalOutput['description'] = regeneratedmetadata['description']
             logger.info(f"Redacted metedata for classification output for fileid : {self.dafileid}")
 
-        if doc_metadata['filename']!=redacted_item['filename']:
-            self.finalOutput['gtl_synopsis'] += f'<br>Filename has been sanitized.<br> Original File Name : {doc_metadata['filename']}'
+        if doc_metadata['filename'].lower()!=redacted_item['filename'].lower():
+            self.finalOutput['gtl_synopsis'] += f'<hr><b>Filename has been sanitized.</b><br> <b>Original File Name</b> : {doc_metadata['filename']}'
 
  
     def classify(self) -> dict:
@@ -290,15 +290,21 @@ class Classifier:
                     continue
                 if key.lower() in ['description']:
                     description = ''
-                    gtl_synopsis = '<i><b>Note: This document is recreated from a pdf file.</b></i><br>' if self.waspdf else ''
-                    for k, v in value.items():
+                    gtl_synopsis = ''
+                    # gtl_synopsis = '<i><b>Note: This document is recreated from a pdf file.</b></i><br>' if self.waspdf else ''
+                    desired_order = ['Description', 'Others', 'Key Points', 'Sections']
+                    sorted_dict = {key: value[key] for key in desired_order if key in value}
+                    for k, v in sorted_dict.items():
                         if k.lower() in ['description']:
                             if v and v not in self.negative_list:
                                 # description += f"<b>{k}</b>:<br>{v}<br><br>"
                                 description = v
                         else:
                             if v and v not in self.negative_list:
-                                gtl_synopsis += f'<b>{k}</b>:<ul><li>{formatedvalue(v)}</ul>'
+                                if k.lower() in ['others']:
+                                    gtl_synopsis += f'<p>{formatedvalue(v)}</p>'
+                                else:
+                                    gtl_synopsis += f'<b>{k}</b>:<ul><li>{formatedvalue(v)}</ul>'
                     self.finalOutput['description'] = Classifier.LM_REMOVE_JUNKS(description)
                     self.finalOutput['gtl_synopsis'] = Classifier.LM_REMOVE_JUNKS(gtl_synopsis)
 
@@ -308,10 +314,11 @@ class Classifier:
 
                 if key.lower() in ['author']:
                     if value.lower() not in self.negative_list + self.WRONG_AUTHOR:
-                        self.finalOutput['author'] = Classifier.LM_REMOVE_JUNKS(value)
+                        short_author = Classifier.LM_REMOVE_JUNKS(value)
+                        self.finalOutput['author'] = short_author[:90]
 
                 if key.lower() in ['offers', 'offer']:
-                    html_table_header = "<br><b>Document inclines towards below Offers:</b><br><table>"
+                    html_table_header = "<hr><b>Document inclines towards below Offers:</b><br><table>"
                     html_table_header += "<tr><th>Offer Name</th><th>Relevance Score</th></tr>"
                     html_table = ''
 

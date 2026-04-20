@@ -104,7 +104,7 @@ class WorkflowStage(ABC):
         requestid = context.state['requestid']
         fuuid     = context.state['fuuid']
         dafileid  = context.state['dafileid']
-
+        
         response_headers = {
             "eventType"   : "IP_GOLDEN_COPY_REQUEST_RECOMMENDATION_ACK",
             "eventSubType": "PROCESSED_FILE",
@@ -131,10 +131,11 @@ class WorkflowStage(ABC):
 
         context.state['outpayload'] = response_payload
         logger.info(f"{fuuid}- Payload generated after stage: {self.name}")
-        response_headers["eventSubType"] = response_headers["eventSubType"] if response_payload['status']=='Processed' else 'STAGE_STATUS'
+        # response_headers["eventSubType"] = response_headers["eventSubType"] if response_payload['status']=='Processed' else 'STAGE_STATUS'
         
         try:
-            producer.send_message(self.cfg.OUTPUT_TOPIC, response_headers, response_payload)
+            if response_payload['status']=='Processed':
+                producer.send_message(self.cfg.OUTPUT_TOPIC, response_headers, response_payload)
         except Exception as e:
             logger.error(f"{fuuid}- Error sending message: {e}", exc_info=True)
             if not stgno < context.state['stage_cnt']:
@@ -181,7 +182,7 @@ class DownloadStage(WorkflowStage):
             logger.info(f"{fuuid}-Downloaded file from dell attachments: {filepath}")
 
             self.s3.upload(fdict['filepath'])
-            logger.info(f"{fuuid}- File uploaded to dell attachments")
+            logger.info(f"{fuuid}- File uploaded to S3 Storage")
         context.state['filepath'] = fdict['filepath']
 
         self.send_updates_to_db(context)
@@ -198,7 +199,7 @@ class ConvertFileStage(WorkflowStage):
 
     def execute(self, context: GlobalContext):
         dafileid = context.state['dafileid']
-        # requestId = context.state['requestid']
+        requestid = context.state['requestid']
         fuuid = context.state['fuuid']
         filepath = context.state['filepath']
 
@@ -212,11 +213,16 @@ class ConvertFileStage(WorkflowStage):
         converted_filepath = conv.convert()
         context.state['converted_filepath'] = converted_filepath
         context.state['waspdf'] = True
-
+        _msg_conversion = '<b><i>This document is recreated from a pdf file.</i></b><br>'
+        
+        self.db.update_gtl_synopsis(where_clause = {'requestid': requestid,'fuuid': fuuid, 'daoriginal_fileid': dafileid},
+                                   update_message = {'Note': _msg_conversion})
+                                   
         self.send_updates_to_db(context,
                                 doc_upd_params={'filename':converted_filepath.name,
                                                 'waspdf':True},
                                 state_upd_params={'converted_filepath': converted_filepath})
+        context.payload['name'] = Path(converted_filepath).name
 
 
 class ExtractFileContentsStage(WorkflowStage):
@@ -309,8 +315,8 @@ class SimilarityStage(WorkflowStage):
         
         if not identification_out:
             logger.info(f"{fuuid}-[SKIP] {self.name}")            
-            self.db.update_gtl_synopsis(where_clause = {'requestid': requestid,'fuuid': fuuid,
-                            'daoriginal_fileid': dafileid,},update_message ={"Similarity Summary": ("No template found for this file")})
+            # self.db.update_gtl_synopsis(where_clause = {'requestid': requestid,'fuuid': fuuid,
+            #                 'daoriginal_fileid': dafileid,},update_message ={"Similarity Summary": ("No template found for this file")})
             self.send_updates_to_db(context)
             return
             
@@ -348,16 +354,16 @@ class SimilarityStage(WorkflowStage):
         
         #message for updating gtl_synopsis
         if similarity_score and description:
-            message = {"Similarity Summary": (
-                    f"This file {filepath.name} is similar to "
-                    f"{template_filename} | "
-                    f"Similarity Score: {similarity_score:.2f}% | "
-                    f"Description: {description}"
+            _msg_similarity = {"Similarity Summary": (
+                    f"<br>This file {filepath.name} is similar to "
+                    f"{template_filename} file.<br>"
+                    f"Similarity Score: {similarity_score:.2f} <br>"
+                    f"<b>Difference Summary:</b><br> {description}<br><hr>"
                 )}
         self.db.update_gtl_synopsis(where_clause = {'requestid': requestid,'fuuid': fuuid,
-                                    'daoriginal_fileid': dafileid,},update_message =message)
+                                    'daoriginal_fileid': dafileid,},update_message = _msg_similarity)
         self.send_updates_to_db(context,
-            doc_upd_params={'similarity': similarity_score,'mathcingdafileid':template_dafileid})
+            doc_upd_params={'similarity': similarity_score,'matchingdafileid':template_dafileid})
             # state_upd_params={'similarity': similarity_score})
 
 class SensitiveItemsExtStage(WorkflowStage):
@@ -429,9 +435,10 @@ class ClassifyStage(WorkflowStage):
         return 6
 
     def execute(self, context: GlobalContext):
-        # requestId = context.state['requestid']
+        requestId = context.state['requestid']
         fuuid = context.state['fuuid']
         input_file = context.state['classification_input_file']
+        dafileid = context.state['dafileid']
 
         if not self.should_execute(context):
             logger.info(f"{fuuid}-[SKIP] {self.name}")
@@ -440,6 +447,11 @@ class ClassifyStage(WorkflowStage):
         filecontent = self.get_file_content(fuuid, input_file)
         cls = Classifier(filecontent, debug=self.cfg.DEBUG, **context.header, **context.payload, waspdf = context.state.get('waspdf',False))
         classification_out = cls.classify()
+        
+        _msg_classification = {'Description': classification_out.pop('gtl_synopsis') + '<hr>'}
+        self.db.update_gtl_synopsis(where_clause = {'requestid': requestId,'fuuid': fuuid,
+                                    'daoriginal_fileid': dafileid,},update_message = _msg_classification)
+                                    
         if 'filename' in classification_out.keys():
             context.state['redacted_filename'] = classification_out['filename']
             self.send_updates_to_db(context,
@@ -501,10 +513,10 @@ class RedactionStage(WorkflowStage):
             self.s3.upload(out_filepath, overwrite = True)
 
         logger.info(f"Updating gtl_synopsis")
-        message = {"Redaction Summary": ("There are no sensitive items found in this file."
-            if totalRedacted == 0 else f"{totalRedacted} sensitive item's got redacted for this file.")}
+        _msg_redaction = {"Redaction Summary": ("There are no sensitive items found in this file.<br><hr>"
+            if totalRedacted == 0 else f"{totalRedacted} sensitive item's got redacted for this file.<br><hr>")}
         self.db.update_gtl_synopsis(where_clause = {'requestid': requestid,'fuuid': fuuid,
-                                    'daoriginal_fileid': dafileid,},update_message =message)
+                                    'daoriginal_fileid': dafileid,},update_message = _msg_redaction)
         self.send_updates_to_db(context,
                                 state_upd_params={'istextredacted': context.state['istextredacted'],
                                                   'isimageredacted': context.state['isimageredacted'],
@@ -573,7 +585,7 @@ class GradingStage(WorkflowStage):
         requestid = context.state['requestid']
         fuuid = context.state['fuuid']
         daoriginal_fileid = context.state['dafileid']
-        if context.state.get('out_filepath') is not None:
+        if any([context.state.get('istextredacted',False),context.state.get('isimageredacted',False)]):
             infilepath = Path(context.state.get('out_filepath'))
             indafileid  = context.state.get('out_dafileid')
         elif context.state.get('converted_filepath') is not None:

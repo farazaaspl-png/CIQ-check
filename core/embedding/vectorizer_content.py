@@ -41,6 +41,7 @@ class ContentVectorInterface:
             embedding_length=768,
             debug=debug,
         )
+        self._NO_OF_BULK_LOADS = 20
  
         self.s3 = StorageManager()
  
