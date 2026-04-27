@@ -13,6 +13,8 @@ from pathlib import Path
 from pythonjsonlogger import jsonlogger
 import chardet
 from config import Config as cfg
+from config import Configuration
+from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
 import contextvars
 from core.log_helper import add_session_file_handler
 
@@ -230,6 +232,61 @@ def get_custom_logger(name):
         logger.propagate = False
     return logger
 
+def chunk_document(content: str, source_name: str) -> List[Dict]:
+    """Chunk a Markdown string into context-aware sections.
+    Splits on headers (h1- h4) with section_path context per chunk.
+    Falls back to RecursiveCharacterTextSplitter if no headers found.
+    """
+    _cfg          = Configuration()
+    _cfg.load_active_config()
+    chunk_size    = getattr(_cfg, "CHUNK_SIZE_DOCUMENT_PROCESS",    4000)
+    chunk_overlap = getattr(_cfg, "OVER_LAP_SIZE_DOCUMENT_PROCESS", 200)
+
+    title = Path(source_name).stem
+
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size    = chunk_size,
+        chunk_overlap = chunk_overlap,
+        separators    = ["\n\n", "\n", ". ", " ", ""],
+    )
+
+    try:
+        sections = MarkdownHeaderTextSplitter(
+            headers_to_split_on=[
+                ("#",    "h1"),
+                ("##",   "h2"),
+                ("###",  "h3"),
+                ("####", "h4"),
+            ],
+            strip_headers=False,
+        ).split_text(content)
+
+        chunks = []
+        for section in sections:
+            parts        = [section.metadata[k] for k in ("h1", "h2", "h3", "h4") if section.metadata.get(k)]
+            section_path = " > ".join(parts) if parts else "Document Content"
+
+            for text in text_splitter.split_text(section.page_content):
+                chunks.append({
+                    "title":        title,
+                    "content":      f"[{section_path}]\n\n{text}",
+                    "section_path": section_path,
+                })
+
+        if chunks:
+            return chunks
+
+    except Exception:
+        pass
+
+    return [
+        {
+            "title":        title,
+            "content":      chunk,
+            "section_path": "unknown",
+        }
+        for chunk in text_splitter.split_text(content)
+    ]
 
 def count_tokens(text: str, results: str= '') -> int:
     # tokenizer = AutoTokenizer.from_pretrained(Path(os.path.join(r"core/tokenizers",cfg.TEXT_TO_TEXT_MODEL)))

@@ -4,7 +4,7 @@ import threading,time,json,logging
 from core.emailNotification import notify_failures
 from core.log_helper import add_session_file_handler, remove_session_file_handler, delete_all_files
 from kafka import KafkaConsumer
-from kafka.errors import KafkaError
+from kafka.errors import KafkaError,CommitFailedError
 from typing import Callable, Dict, List, Optional
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
@@ -170,6 +170,8 @@ class KafkaMessageListener:
                     self.consumer.commit()
                     self._route_message(header, data)
                     logger.info(f"MESSAGE PROCESSED :: header: {header}, payload: {data}")
+                except CommitFailedError:
+                    pass  # safe if idempotent processing
                 except Exception as e:
                 #     self.consumer.commit(offset=message.offset)
                     logger.error(f"Error processing message: {e}",exc_info=True)

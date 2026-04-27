@@ -506,7 +506,17 @@ class RedactionStage(WorkflowStage):
         isImageRedacted = False
         #replace all the sensitive items from image contents of original file.
         if imageRedactor is not None:
+            if isTextRedacted:
+                infilepath = Path(context.state.get('out_filepath'))
+            elif context.state.get('converted_filepath') is not None:
+                infilepath = Path(context.state.get('converted_filepath'))
+            else:
+                infilepath = Path(context.state.get('filepath'))
+                
+            dispatcher = Dispatcher(infilepath, dafileid=dafileid, analyze_images=self.cfg.IMAGE_ANALYZE_SWITCH, debug=self.cfg.DEBUG)
+            _ , imageRedactor = dispatcher.getRedactors(outdir=os.path.join(request_dir, self.name))
             isImageRedacted = imageRedactor.redact(tobe_redacted = sensitive_items, **context.state)
+
             context.state['isimageredacted'] = isImageRedacted
 
         if isImageRedacted:

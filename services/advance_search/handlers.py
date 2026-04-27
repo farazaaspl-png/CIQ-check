@@ -74,6 +74,8 @@ class DeepSearchHandler(MessageHandler):
             vec = ContentVectorInterface(cfg.DOCUMENT_CONTENT_STORE)
             results_df = vec.search_and_rank_with_llm(query)
             filtered_results_df = results_df[results_df['relevance_score']>cfg.DEEP_SEARCH_RELEVANCE_SCORE_THRESHOLD]
+            logger.info(f"After apply {cfg.DEEP_SEARCH_RELEVANCE_SCORE_THRESHOLD} threshold, got {filtered_results_df.shape[0]} documents")
+
             if filtered_results_df.shape[0]==0:
                 raise UnableToFindAnyDocument()
             list_of_dfs = [filtered_results_df.iloc[i:i + cfg.DEEP_SEARCH_PUSH_SIZE].copy() for i in range(0, len(filtered_results_df), cfg.DEEP_SEARCH_PUSH_SIZE)]

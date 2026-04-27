@@ -71,10 +71,10 @@ spec:
           resources:
             requests:
               memory: "8Gi"
-              cpu: "4"
+              cpu: "3"
             limits:
               memory: "8Gi"
-              cpu: "4"
+              cpu: "3"
           env:
           - name: MAX_WORKERS
             value: "1"
